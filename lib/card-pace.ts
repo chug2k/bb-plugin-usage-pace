@@ -69,6 +69,7 @@ const STYLE = `
 }
 [${DETAIL_ATTR}] {
   grid-column: 1 / -1;
+  text-align: right;
   white-space: pre-line;
   line-height: 1.35;
   padding-top: 1px;
@@ -214,7 +215,7 @@ function decorateRow(
 
   // bb expands the row on tap and adds its reset line as the last child.
   // The delta goes after it; appendChild also moves it back to the end if
-  // React adds its line later. On hover it goes under the dates, on the right.
+  // React adds its line later. It is always right-aligned, under the dates.
   const expanded = row.getAttribute("aria-expanded") === "true";
   if (expanded || hovered) {
     if (detail === null) {
@@ -223,8 +224,6 @@ function decorateRow(
       detail.className = "text-2xs text-subtle-foreground tabular-nums";
     }
     if (row.lastElementChild !== detail) row.appendChild(detail);
-    const align = expanded ? "left" : "right";
-    if (detail.style.textAlign !== align) detail.style.textAlign = align;
     const [first, second] = describeDelta(match.pace, match.usedPercent, now);
     setText(detail, `${first}\n${second}`);
   } else {

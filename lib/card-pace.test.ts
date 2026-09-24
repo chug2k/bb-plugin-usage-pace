@@ -211,7 +211,7 @@ describe("mountCardPace", () => {
     const line = detail(weekly!)!;
     expect(line).not.toBeNull();
     expect(line.previousElementSibling).toBe(weekly!.firstElementChild);
-    expect(line.style.textAlign).toBe("right");
+    expect(getComputedStyle(line).textAlign).toBe("right");
     expect(line.textContent).toMatch(/^15% ahead of pace \(1d 0h\)\nruns out .+ · 2d 10h without quota$/u);
     leave(weekly!, document.body);
     expect(detail(weekly!)).toBeNull();
@@ -275,7 +275,7 @@ describe("mountCardPace", () => {
     const line = row!.lastElementChild as HTMLElement;
     expect(line.hasAttribute("data-usage-pace-detail")).toBe(true);
     expect(line.previousElementSibling).toBe(reset);
-    expect(line.style.textAlign).toBe("left");
+    expect(getComputedStyle(line).textAlign).toBe("right");
     expect(line.textContent).toMatch(/^15% ahead of pace/u);
 
     // What bb does on the second tap.
