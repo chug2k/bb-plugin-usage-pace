@@ -1,0 +1,101 @@
+{
+  "name": "bb-plugin-usage-pace",
+  "version": "0.1.0",
+  "type": "module",
+  "engines": {
+    "bb": ">=0.43",
+    "bbPluginSdk": ">=0.5.9"
+  },
+  "bb": {
+    "name": "Usage Pace",
+    "description": "Shows provider quotas in the sidebar footer, with the pace: will this window last until it resets?",
+    "branding": {
+      "icon": "ChartColumn"
+    },
+    "server": "./server.ts",
+    "app": "./app.tsx",
+    "skills": [
+      "skills"
+    ]
+  },
+  "dependencies": {
+    "@hugeicons/core-free-icons": "^4.1.3",
+    "@hugeicons/react": "^1.1.6",
+    "@radix-ui/react-checkbox": "^1.3.7",
+    "@radix-ui/react-slot": "^1.3.0",
+    "zod": "^4.3.6"
+  },
+  "devDependencies": {
+    "@get-bb/plugin-sdk": "0.5.9",
+    "@pierre/diffs": "^1.2.9",
+    "@radix-ui/react-alert-dialog": "^1.1.19",
+    "@radix-ui/react-context-menu": "^2.3.3",
+    "@radix-ui/react-dialog": "^1.1.19",
+    "@radix-ui/react-dropdown-menu": "^2.1.20",
+    "@radix-ui/react-hover-card": "^1.1.19",
+    "@radix-ui/react-menubar": "^1.1.20",
+    "@radix-ui/react-navigation-menu": "^1.2.18",
+    "@radix-ui/react-popover": "^1.1.19",
+    "@radix-ui/react-select": "^2.3.3",
+    "@radix-ui/react-tooltip": "^1.2.12",
+    "@types/better-sqlite3": "^7.6.12",
+    "@types/node": "^22.0.0",
+    "@types/react": "^19.0.0",
+    "@types/react-dom": "^19.0.0",
+    "better-sqlite3": "^12.0.0",
+    "class-variance-authority": "^0.7.1",
+    "clsx": "^2.1.1",
+    "cron-parser": "^5.5.0",
+    "hono": "^4.11.9",
+    "jsdom": "^27.4.0",
+    "sonner": "^1.7.4",
+    "tailwind-merge": "^3.4.0",
+    "typescript": "^5.7.0",
+    "vaul": "^1.1.2",
+    "vitest": "^3.2.7"
+  },
+  "description": "Provider usage limits and burn-rate pace in the bb sidebar footer",
+  "keywords": [
+    "bb-plugin",
+    "usage",
+    "limits",
+    "pace"
+  ],
+  "license": "MIT",
+  "author": {
+    "name": "Charles Lee",
+    "url": "https://github.com/chug2k"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/chug2k/bb-plugin-usage-pace.git"
+  },
+  "files": [
+    "server.ts",
+    "app.tsx",
+    "host.ts",
+    "*.ts",
+    "*.css",
+    "components",
+    "lib",
+    "hooks",
+    "skills",
+    "dist/*.js",
+    "dist/*.css",
+    "dist/*.meta.json",
+    "README.md",
+    "PLUGIN_OVERVIEW.md",
+    "LICENSE"
+  ],
+  "scripts": {
+    "build": "bb plugin build",
+    "check": "tsc --noEmit",
+    "test": "vitest run && node --experimental-strip-types --test tests/token-totals.test.mjs"
+  },
+  "contributors": [
+    {
+      "name": "Dmitrii Kapustin",
+      "url": "https://github.com/dmitriikapustin"
+    }
+  ]
+}
