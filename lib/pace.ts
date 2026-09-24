@@ -52,15 +52,30 @@ const UNIT_MS: Record<string, number> = {
   weeks: 7 * DAY_MS,
 };
 
-const DURATION_PATTERN =
-  /(\d+(?:\.\d+)?)\s*[-‑]?\s*(hours?|hrs?|h|days?|d|weeks?|wk|w)\b/iu;
+const NUMBER_WORDS: Record<string, number> = {
+  one: 1,
+  two: 2,
+  three: 3,
+  four: 4,
+  five: 5,
+  six: 6,
+  seven: 7,
+  eight: 8,
+  twelve: 12,
+  thirty: 30,
+};
+
+const DURATION_PATTERN = new RegExp(
+  String.raw`(\d+(?:\.\d+)?|${Object.keys(NUMBER_WORDS).join("|")})\s*[-‑]?\s*(hours?|hrs?|h|days?|d|weeks?|wk|w)\b`,
+  "iu",
+);
 
 /** Window length from a provider label, or null when the label has none. */
 export function windowDurationMs(label: string): number | null {
   const match = DURATION_PATTERN.exec(label);
   if (match !== null) {
     const unit = UNIT_MS[match[2]!.toLowerCase()];
-    const amount = Number(match[1]);
+    const amount = NUMBER_WORDS[match[1]!.toLowerCase()] ?? Number(match[1]);
     if (unit !== undefined && amount > 0) return amount * unit;
   }
   if (/\bweek(ly)?\b/iu.test(label)) return 7 * DAY_MS;

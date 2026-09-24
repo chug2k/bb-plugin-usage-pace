@@ -26,6 +26,11 @@ describe("windowDurationMs", () => {
     ["Week (all models)", 168 * HOUR],
     ["Daily", 24 * HOUR],
     ["2 weeks", 336 * HOUR],
+    // The labels bb's provider-usage card shows.
+    ["Five-hour limit", 5 * HOUR],
+    ["Weekly limit", 168 * HOUR],
+    ["Weekly · Fable", 168 * HOUR],
+    ["Daily limit", 24 * HOUR],
   ])("reads %s", (label, expected) => {
     expect(windowDurationMs(label)).toBe(expected);
   });

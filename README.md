@@ -11,7 +11,8 @@ A fork of [Usage Bar](https://github.com/dmitriikapustin/bb-plugins-by-kapustin/
 
 **In bb's usage card** (the built-in Provider usage card in the sidebar footer):
 
-- Each window's bar gets a tick at **even pace**: where the bar would be if you used the quota at an exact even rate. If the fill goes past the tick, you are ahead of pace.
+- Each window's bar gets a tick at **even pace**: where the bar would be if you used the quota at an exact even rate.
+- The part of the bar between the fill and the tick shows the difference. It is **red** when you are ahead of pace, and light grey (headroom) when you are under pace.
 - Hover a row (or focus it with the keyboard) to see the delta under the reset time:
 
 ```
@@ -22,7 +23,7 @@ A fork of [Usage Bar](https://github.com/dmitriikapustin/bb-plugins-by-kapustin/
 
 The first line is the difference from even pace, in percentage points and in time. The second line is the time without quota before the reset, or the daily budget that lasts.
 
-The card belongs to another plugin. Usage Pace only adds nodes to it. If a bb update changes the card's markup, the tick and the delta stop showing, and nothing else breaks.
+The card belongs to another plugin. Usage Pace only adds nodes to it, and reads the card's own data (`provider-usage` `getUsage`, from its cache), so the labels always match. If a bb update changes the card's markup, the tick and the delta stop showing, and nothing else breaks.
 
 **Optional footer strip.** Turn on *Also show the Usage Pace strip* in the plugin settings. It shows one chip for each provider account (the weekly window):
 
