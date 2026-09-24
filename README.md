@@ -13,7 +13,7 @@ A fork of [Usage Bar](https://github.com/dmitriikapustin/bb-plugins-by-kapustin/
 
 - Each window's bar gets a tick at **even pace**: where the bar would be if you used the quota at an exact even rate.
 - The part of the bar between the fill and the tick shows the difference. It is **red** when you are ahead of pace, and light grey (headroom) when you are under pace.
-- Hover a row to see the delta in a small label under it. The label floats over the card, so the rows do not move. On a touch screen (or with the keyboard), tap the row: bb expands it, and the delta shows under bb's reset time:
+- Hover a row to see the delta under the dates. The row stays open while the pointer is anywhere in the list of rows, so moving between rows does not flicker. On a touch screen (or with the keyboard), tap the row: bb expands it, and the delta shows under bb's reset time:
 
 ```
 7d    [█████████|██········]  44%   5d 2h

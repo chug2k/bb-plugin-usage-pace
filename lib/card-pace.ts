@@ -1,14 +1,19 @@
 // Adds pace to bb's built-in usage card (the provider-usage plugin's sidebar
 // footer card). That card is another plugin's React tree, so this content
-// script only adds nodes to it and never changes the nodes React renders:
+// script mostly adds nodes to it:
 //   - an even-pace tick on each window's bar, and a band between the used
 //     percent and that tick: red when ahead of pace, faint when under it;
-//   - the delta from even pace, in two places:
-//       * on hover (mouse only): one fixed-position label outside the card,
-//         so the rows never move. The gaps between rows belong to the open
-//         row, so moving between rows does not flicker;
-//       * on tap, click or Enter: bb's row expands to show its reset text,
-//         and the delta goes under that text. This is the touch path.
+//   - the delta from even pace, as a line inside the row, under the dates.
+//     It shows while the pointer is over the row (mouse only), and when bb
+//     expands the row on tap, click or Enter (the touch path).
+//
+// Hover is not CSS `:hover`. The delta line makes the row taller and moves
+// the rows below it, so `:hover` closed the row whenever the pointer was in a
+// gap between rows, and the card jumped. Here the open row stays open while
+// the pointer is anywhere in the list of rows, and changes only when the
+// pointer enters another row. The one change to a React node: while a row is
+// open by hover, its `title` is held back, so the browser does not show a
+// second, native tooltip over the delta. It is put back when the row closes.
 //
 // The card has no plugin attribute. It is found from its header
 // (`[data-provider-usage-header]`); each window row is a button whose
@@ -24,10 +29,11 @@ const HEADER_SELECTOR = "[data-provider-usage-header]";
 const TICK_ATTR = "data-usage-pace-tick";
 /** The part of the bar between the used percent and even pace. */
 const BAND_ATTR = "data-usage-pace-band";
-const TOOLTIP_ID = "usage-pace-delta";
-/** The delta inside a row that bb has expanded. */
+/** The delta line inside a row. */
 const DETAIL_ATTR = "data-usage-pace-detail";
-/** Hover labels only where a pointer can hover; touch uses the expanded row. */
+/** Where the `title` of a hover-open row waits until the row closes. */
+const TITLE_ATTR = "data-usage-pace-title";
+/** Hover only where a pointer can hover; touch uses bb's tap to expand. */
 const HOVER_QUERY = "(hover: hover) and (pointer: fine)";
 const STYLE_ID = "usage-pace-card-style";
 const MACHINE_PREFIX = "Usage machine: ";
@@ -61,29 +67,13 @@ const STYLE = `
   background: var(--sidebar-foreground, currentColor);
   opacity: 0.15;
 }
-#${TOOLTIP_ID} {
-  position: fixed;
-  z-index: 60;
-  pointer-events: none;
+[${DETAIL_ATTR}] {
+  grid-column: 1 / -1;
   white-space: pre-line;
-  text-align: right;
-  font-size: 11px;
   line-height: 1.35;
-  font-variant-numeric: tabular-nums;
-  padding: 3px 6px;
-  border-radius: 6px;
-  border: 1px solid var(--sidebar-border, rgb(0 0 0 / 0.1));
-  background: var(--popover, var(--sidebar, #fff));
-  color: var(--popover-foreground, var(--sidebar-foreground, #111));
-  box-shadow: 0 2px 8px rgb(0 0 0 / 0.12);
-}
-#${TOOLTIP_ID}[hidden] {
-  display: none;
+  padding-top: 1px;
 }
 `;
-
-/** The delta text for each decorated row, read by the hover label. */
-type Deltas = WeakMap<HTMLElement, string>;
 
 /** One provider on one machine, with the names the card shows. */
 export interface CardProvider {
@@ -161,12 +151,28 @@ function setText(element: HTMLElement, text: string) {
   if (element.textContent !== text) element.textContent = text;
 }
 
+function holdTitle(row: HTMLElement) {
+  const title = row.getAttribute("title");
+  if (title === null) return;
+  row.setAttribute(TITLE_ATTR, title);
+  row.removeAttribute("title");
+}
+
+function restoreTitle(row: HTMLElement) {
+  const title = row.getAttribute(TITLE_ATTR);
+  if (title === null) return;
+  row.removeAttribute(TITLE_ATTR);
+  // React sets a new title when its value changes; keep that one.
+  if (!row.hasAttribute("title")) row.setAttribute("title", title);
+}
+
+/** Returns true when the row was decorated. */
 function decorateRow(
   row: HTMLElement,
   match: RowMatch | null,
   now: number,
-  deltas: Deltas,
-) {
+  hovered: boolean,
+): boolean {
   const grid = row.firstElementChild;
   // The bar is the second cell of the row grid: label, bar, percent, reset.
   const bar = grid?.children.item(1);
@@ -178,8 +184,7 @@ function decorateRow(
     band?.remove();
     tick?.remove();
     detail?.remove();
-    deltas.delete(row);
-    return;
+    return false;
   }
 
   if (bar.style.position !== "relative") bar.style.position = "relative";
@@ -207,35 +212,43 @@ function decorateRow(
   const left = `${even.toFixed(2)}%`;
   if (tick.style.left !== left) tick.style.left = left;
 
-  const [first, second] = describeDelta(match.pace, match.usedPercent, now);
-  const text = `${first}\n${second}`;
-  deltas.set(row, text);
-
-  // bb adds its own reset line as the last child when the row expands. The
-  // delta goes after it; appendChild also moves it back to the end if React
-  // added its line later.
-  if (row.getAttribute("aria-expanded") === "true") {
+  // bb expands the row on tap and adds its reset line as the last child.
+  // The delta goes after it; appendChild also moves it back to the end if
+  // React adds its line later. On hover it goes under the dates, on the right.
+  const expanded = row.getAttribute("aria-expanded") === "true";
+  if (expanded || hovered) {
     if (detail === null) {
       detail = document.createElement("span");
       detail.setAttribute(DETAIL_ATTR, "");
-      detail.className = "col-span-full text-2xs text-subtle-foreground tabular-nums";
-      detail.style.whiteSpace = "pre-line";
+      detail.className = "text-2xs text-subtle-foreground tabular-nums";
     }
     if (row.lastElementChild !== detail) row.appendChild(detail);
-    setText(detail, text);
+    const align = expanded ? "left" : "right";
+    if (detail.style.textAlign !== align) detail.style.textAlign = align;
+    const [first, second] = describeDelta(match.pace, match.usedPercent, now);
+    setText(detail, `${first}\n${second}`);
   } else {
     detail?.remove();
   }
+  return true;
+}
+
+/** The window rows of one card, without the machine menu in its header. */
+function cardRows(header: Element): HTMLElement[] {
+  const card = header.parentElement;
+  if (card === null) return [];
+  return [...card.querySelectorAll<HTMLElement>("button[aria-expanded]")].filter(
+    (row) => !header.contains(row),
+  );
 }
 
 function decorateCard(
   header: Element,
   providers: readonly CardProvider[],
   now: number,
-  deltas: Deltas,
+  hovered: HTMLElement | null,
+  decorated: WeakSet<HTMLElement>,
 ) {
-  const card = header.parentElement;
-  if (card === null) return;
   const provider =
     header
       .querySelector('[role="tab"][aria-selected="true"]')
@@ -244,12 +257,12 @@ function decorateCard(
     header.querySelector(`[aria-label^="${MACHINE_PREFIX}"]`)?.getAttribute("aria-label") ??
     null;
   const machine = machineLabel?.slice(MACHINE_PREFIX.length) ?? null;
-  for (const row of card.querySelectorAll<HTMLElement>("button[aria-expanded]")) {
-    // The machine menu in the header is also a button with aria-expanded.
-    if (header.contains(row)) continue;
+  for (const row of cardRows(header)) {
     const label = row.getAttribute("aria-label");
     if (label === null) continue;
-    decorateRow(row, matchRow(providers, provider, machine, label, now), now, deltas);
+    const match = matchRow(providers, provider, machine, label, now);
+    if (decorateRow(row, match, now, row === hovered)) decorated.add(row);
+    else decorated.delete(row);
   }
 }
 
@@ -264,77 +277,61 @@ export function mountCardPace({ signal }: { signal: AbortSignal }) {
   let providers: CardProvider[] = [];
   let fetchedAt = 0;
   let fetching = false;
-  const deltas: Deltas = new WeakMap();
+  const decorated = new WeakSet<HTMLElement>();
+  let hovered: HTMLElement | null = null;
 
-  // The hover label: one element for all rows, placed under the row (above
-  // it when there is no room below).
-  const tooltip = document.createElement("div");
-  tooltip.id = TOOLTIP_ID;
-  tooltip.setAttribute("role", "tooltip");
-  tooltip.hidden = true;
-  document.body.appendChild(tooltip);
-  let active: HTMLElement | null = null;
-
-  const hide = () => {
-    active = null;
-    if (!tooltip.hidden) tooltip.hidden = true;
-  };
-  const place = () => {
-    const text = active?.isConnected ? deltas.get(active) : undefined;
-    // An expanded row already shows the delta inside it.
-    if (active === null || text === undefined || active.getAttribute("aria-expanded") === "true") {
-      if (!tooltip.hidden) tooltip.hidden = true;
-      return;
-    }
-    setText(tooltip, text);
-    tooltip.hidden = false;
-    const row = active.getBoundingClientRect();
-    const box = tooltip.getBoundingClientRect();
-    const gap = 2;
-    const below = row.bottom + gap;
-    const top = below + box.height > window.innerHeight ? row.top - gap - box.height : below;
-    tooltip.style.top = `${Math.max(0, Math.round(top))}px`;
-    tooltip.style.left = `${Math.max(0, Math.round(row.right - box.width))}px`;
-  };
-  const rowFrom = (target: EventTarget | null): HTMLElement | null => {
-    if (!(target instanceof Element)) return null;
-    const row = target.closest("button[aria-expanded]");
-    return row instanceof HTMLElement && deltas.has(row) ? row : null;
-  };
-  const canHover = () => window.matchMedia?.(HOVER_QUERY).matches ?? true;
-  const onEnter = (event: MouseEvent) => {
-    if (!canHover()) return;
-    const row = rowFrom(event.target);
-    // Over a gap between rows, `row` is null: keep the open row.
-    if (row === null || row === active) return;
-    active = row;
-    place();
-  };
-  const onLeave = (event: MouseEvent) => {
-    if (active === null) return;
-    // The hitbox is the whole list of rows, gaps included.
-    const rows = active.parentElement;
-    const next = event.relatedTarget;
-    if (!(next instanceof Node && rows?.contains(next))) hide();
-  };
-  document.addEventListener("mouseover", onEnter);
-  document.addEventListener("mouseout", onLeave);
-  window.addEventListener("scroll", hide, true);
-
-  let frame: number | null = null;
   const run = () => {
-    frame = null;
     if (signal.aborted) return;
+    if (hovered !== null && !hovered.isConnected) hovered = null;
     const headers = document.querySelectorAll(HEADER_SELECTOR);
     if (headers.length === 0) return;
     const now = Date.now();
     if (now - fetchedAt > REFETCH_MS) void load();
-    for (const header of headers) decorateCard(header, providers, now, deltas);
-    if (active !== null) place();
+    for (const header of headers) decorateCard(header, providers, now, hovered, decorated);
+    // React puts a changed title back; hold it again.
+    if (hovered !== null) holdTitle(hovered);
   };
+
+  let frame: number | null = null;
   const schedule = () => {
-    if (frame === null) frame = window.requestAnimationFrame(run);
+    if (frame === null)
+      frame = window.requestAnimationFrame(() => {
+        frame = null;
+        run();
+      });
   };
+
+  const setHovered = (row: HTMLElement | null) => {
+    if (row === hovered) return;
+    if (hovered !== null) restoreTitle(hovered);
+    hovered = row;
+    if (row !== null) holdTitle(row);
+    // Now, not on the next frame: the layout must change before the next
+    // pointer event is read against it.
+    run();
+  };
+
+  const canHover = () => window.matchMedia?.(HOVER_QUERY).matches ?? true;
+  const rowFrom = (target: EventTarget | null): HTMLElement | null => {
+    if (!(target instanceof Element)) return null;
+    const row = target.closest("button[aria-expanded]");
+    return row instanceof HTMLElement && decorated.has(row) ? row : null;
+  };
+  const onOver = (event: MouseEvent) => {
+    if (!canHover()) return;
+    const row = rowFrom(event.target);
+    // Over a gap between rows, `row` is null: keep the open row.
+    if (row !== null) setHovered(row);
+  };
+  const onOut = (event: MouseEvent) => {
+    if (hovered === null) return;
+    // The hitbox is the whole list of rows, gaps included.
+    const list = hovered.parentElement;
+    const next = event.relatedTarget;
+    if (!(next instanceof Node && list?.contains(next))) setHovered(null);
+  };
+  document.addEventListener("mouseover", onOver);
+  document.addEventListener("mouseout", onOut);
 
   async function load() {
     if (fetching) return;
@@ -372,10 +369,10 @@ export function mountCardPace({ signal }: { signal: AbortSignal }) {
     observer.disconnect();
     window.clearInterval(minute);
     if (frame !== null) window.cancelAnimationFrame(frame);
-    document.removeEventListener("mouseover", onEnter);
-    document.removeEventListener("mouseout", onLeave);
-    window.removeEventListener("scroll", hide, true);
-    tooltip.remove();
+    document.removeEventListener("mouseover", onOver);
+    document.removeEventListener("mouseout", onOut);
+    if (hovered !== null) restoreTitle(hovered);
+    hovered = null;
     for (const node of document.querySelectorAll(
       `[${TICK_ATTR}], [${BAND_ATTR}], [${DETAIL_ATTR}]`,
     )) {

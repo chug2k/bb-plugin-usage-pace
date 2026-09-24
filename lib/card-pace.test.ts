@@ -109,7 +109,7 @@ function renderCard(rows: { label: string; used: number }[]) {
         ${rows
           .map(
             ({ label, used }) => `
-          <button type="button" aria-expanded="false" aria-label="${label}: ${used}% used. Resets Tue 3:59 PM">
+          <button type="button" aria-expanded="false" title="${label} · Resets Tue 3:59 PM" aria-label="${label}: ${used}% used. Resets Tue 3:59 PM">
             <span class="grid">
               <span>${label}</span>
               <span class="bar"><span class="fill" style="width:${used}%"></span></span>
@@ -152,11 +152,20 @@ describe("mountCardPace", () => {
     await new Promise((resolve) => setTimeout(resolve, 0));
     await frame();
   };
-
-  it("reads the card's own RPC", async () => {
-    renderCard([{ label: "Weekly limit", used: 42 }]);
+  const mount = async (rows: { label: string; used: number }[]) => {
+    renderCard(rows);
     unmount = mountCardPace({ signal: controller.signal });
     await settle();
+    return [...document.querySelectorAll<HTMLElement>(".grid > button[aria-expanded]")];
+  };
+  const hover = (row: Element) =>
+    row.firstElementChild!.dispatchEvent(new MouseEvent("mouseover", { bubbles: true }));
+  const leave = (row: Element, to: Element | null) =>
+    row.dispatchEvent(new MouseEvent("mouseout", { bubbles: true, relatedTarget: to }));
+  const detail = (row: Element) => row.querySelector<HTMLElement>(":scope > [data-usage-pace-detail]");
+
+  it("reads the card's own RPC", async () => {
+    await mount([{ label: "Weekly limit", used: 42 }]);
     expect(fetchMock.mock.calls[0]![0]).toBe("/api/v1/plugins/provider-usage/rpc/getUsage");
     expect(JSON.parse(fetchMock.mock.calls[0]![1].body)).toEqual({
       force: false,
@@ -166,163 +175,135 @@ describe("mountCardPace", () => {
     });
   });
 
-  const hover = (row: Element) =>
-    row.firstElementChild!.dispatchEvent(new MouseEvent("mouseover", { bubbles: true }));
-  const leave = (row: Element, to: Element | null) =>
-    row.dispatchEvent(new MouseEvent("mouseout", { bubbles: true, relatedTarget: to }));
-  const tooltip = () => document.getElementById("usage-pace-delta")!;
-
-  it("adds an even-pace tick to every row, and a delta on hover", async () => {
-    renderCard([
+  it("adds an even-pace tick to every row", async () => {
+    const rows = await mount([
       { label: "Five-hour limit", used: 32 },
       { label: "Weekly limit", used: 42 },
       { label: "Weekly · Fable", used: 7 },
     ]);
-    unmount = mountCardPace({ signal: controller.signal });
-    await settle();
-
-    const rows = [...document.querySelectorAll<HTMLElement>(".grid > button[aria-expanded]")];
-    expect(rows).toHaveLength(3);
     for (const row of rows) {
       expect(row.querySelector(".bar > [data-usage-pace-tick]")).not.toBeNull();
+      expect(detail(row)).toBeNull();
     }
-
-    const weekly = rows[1]!;
-    const tick = weekly.querySelector<HTMLElement>("[data-usage-pace-tick]")!;
+    const tick = rows[1]!.querySelector<HTMLElement>("[data-usage-pace-tick]")!;
     expect(Number.parseFloat(tick.style.left)).toBeCloseTo((46 / 168) * 100, 1);
-    expect(weekly.querySelector<HTMLElement>(".bar")!.style.position).toBe("relative");
-    expect(tooltip().hidden).toBe(true);
-    hover(weekly);
-    expect(tooltip().hidden).toBe(false);
-    expect(tooltip().textContent).toMatch(
-      /^15% ahead of pace \(1d 0h\)\nruns out .+ · 2d 10h without quota$/u,
-    );
-    leave(weekly, rows[2]!);
-    hover(rows[2]!);
-    expect(tooltip().textContent).toMatch(/under pace/u);
-    leave(rows[2]!, document.body);
-    expect(tooltip().hidden).toBe(true);
+    expect(rows[1]!.querySelector<HTMLElement>(".bar")!.style.position).toBe("relative");
   });
 
   it("marks the part of the bar ahead of pace red, and the part under pace faint", async () => {
-    renderCard([
+    await mount([
       { label: "Weekly limit", used: 42 },
       { label: "Weekly · Fable", used: 7 },
     ]);
-    unmount = mountCardPace({ signal: controller.signal });
-    await settle();
     const even = (46 / 168) * 100;
     const [weekly, fable] = [...document.querySelectorAll<HTMLElement>("[data-usage-pace-band]")];
-
     expect(weekly!.getAttribute("data-usage-pace-band")).toBe("ahead");
     expect(Number.parseFloat(weekly!.style.left)).toBeCloseTo(even, 1);
     expect(Number.parseFloat(weekly!.style.width)).toBeCloseTo(42 - even, 1);
-
     expect(fable!.getAttribute("data-usage-pace-band")).toBe("under");
     expect(Number.parseFloat(fable!.style.left)).toBeCloseTo(7, 1);
     expect(Number.parseFloat(fable!.style.width)).toBeCloseTo(even - 7, 1);
   });
 
-  it("stays open while the pointer moves inside the row", async () => {
-    renderCard([{ label: "Weekly limit", used: 42 }]);
-    unmount = mountCardPace({ signal: controller.signal });
-    await settle();
-    const row = document.querySelector(".grid > button[aria-expanded]")!;
-    hover(row);
-    leave(row, row.querySelector(".bar")!);
-    expect(tooltip().hidden).toBe(false);
+  it("shows the delta inside the row, under the dates, on hover", async () => {
+    const [weekly] = await mount([{ label: "Weekly limit", used: 42 }]);
+    hover(weekly!);
+    const line = detail(weekly!)!;
+    expect(line).not.toBeNull();
+    expect(line.previousElementSibling).toBe(weekly!.firstElementChild);
+    expect(line.style.textAlign).toBe("right");
+    expect(line.textContent).toMatch(/^15% ahead of pace \(1d 0h\)\nruns out .+ · 2d 10h without quota$/u);
+    leave(weekly!, document.body);
+    expect(detail(weekly!)).toBeNull();
   });
 
-  it("keeps the label open over the gap between rows, and switches on the next row", async () => {
-    renderCard([
+  it("keeps the row open over the gap between rows, and switches on the next row", async () => {
+    const [weekly, fable] = await mount([
       { label: "Weekly limit", used: 42 },
       { label: "Weekly · Fable", used: 7 },
     ]);
-    unmount = mountCardPace({ signal: controller.signal });
-    await settle();
-    const [weekly, fable] = [...document.querySelectorAll(".grid > button[aria-expanded]")];
-    const list = weekly!.parentElement!;
     hover(weekly!);
-    leave(weekly!, list);
-    expect(tooltip().hidden).toBe(false);
-    expect(tooltip().textContent).toMatch(/ahead of pace/u);
+    leave(weekly!, weekly!.parentElement);
+    expect(detail(weekly!)).not.toBeNull();
     hover(fable!);
-    expect(tooltip().textContent).toMatch(/under pace/u);
+    expect(detail(weekly!)).toBeNull();
+    expect(detail(fable!)!.textContent).toMatch(/under pace/u);
   });
 
-  it("shows no hover label where the pointer cannot hover", async () => {
+  it("stays open while the pointer is over its own delta line", async () => {
+    const [weekly] = await mount([{ label: "Weekly limit", used: 42 }]);
+    hover(weekly!);
+    const line = detail(weekly!)!;
+    leave(weekly!.firstElementChild!, line);
+    line.dispatchEvent(new MouseEvent("mouseover", { bubbles: true }));
+    expect(detail(weekly!)).toBe(line);
+  });
+
+  it("holds back the native title while open, and puts it back", async () => {
+    const [weekly] = await mount([{ label: "Weekly limit", used: 42 }]);
+    hover(weekly!);
+    expect(weekly!.hasAttribute("title")).toBe(false);
+    leave(weekly!, document.body);
+    expect(weekly!.getAttribute("title")).toBe("Weekly limit · Resets Tue 3:59 PM");
+  });
+
+  it("does nothing on hover where the pointer cannot hover", async () => {
     vi.stubGlobal("matchMedia", (query: string) => ({ matches: false, media: query }));
-    renderCard([{ label: "Weekly limit", used: 42 }]);
-    unmount = mountCardPace({ signal: controller.signal });
-    await settle();
-    hover(document.querySelector(".grid > button[aria-expanded]")!);
-    expect(tooltip().hidden).toBe(true);
+    const [weekly] = await mount([{ label: "Weekly limit", used: 42 }]);
+    hover(weekly!);
+    expect(detail(weekly!)).toBeNull();
+    expect(weekly!.hasAttribute("title")).toBe(true);
+  });
+
+  it("does nothing on hover over the machine menu in the header", async () => {
+    await mount([{ label: "Weekly limit", used: 42 }]);
+    const menu = document.querySelector("[data-provider-usage-header] button[aria-expanded]")!;
+    hover(menu);
+    expect(document.querySelector("[data-usage-pace-detail]")).toBeNull();
   });
 
   it("puts the delta under bb's reset line when the row is tapped open", async () => {
-    renderCard([{ label: "Weekly limit", used: 42 }]);
-    unmount = mountCardPace({ signal: controller.signal });
-    await settle();
-    const row = document.querySelector<HTMLElement>(".grid > button[aria-expanded]")!;
+    const [row] = await mount([{ label: "Weekly limit", used: 42 }]);
 
     // What bb does on a tap: aria-expanded, then its own reset line at the end.
-    row.setAttribute("aria-expanded", "true");
+    row!.setAttribute("aria-expanded", "true");
     const reset = document.createElement("span");
     reset.textContent = "Resets Tue 3:59 PM";
-    row.appendChild(reset);
+    row!.appendChild(reset);
     await frame();
 
-    const detail = row.lastElementChild!;
-    expect(detail.hasAttribute("data-usage-pace-detail")).toBe(true);
-    expect(detail.previousElementSibling).toBe(reset);
-    expect(detail.textContent).toMatch(/^15% ahead of pace/u);
-
-    hover(row);
-    expect(tooltip().hidden).toBe(true);
+    const line = row!.lastElementChild as HTMLElement;
+    expect(line.hasAttribute("data-usage-pace-detail")).toBe(true);
+    expect(line.previousElementSibling).toBe(reset);
+    expect(line.style.textAlign).toBe("left");
+    expect(line.textContent).toMatch(/^15% ahead of pace/u);
 
     // What bb does on the second tap.
-    row.setAttribute("aria-expanded", "false");
+    row!.setAttribute("aria-expanded", "false");
     reset.remove();
     await frame();
-    expect(row.querySelector("[data-usage-pace-detail]")).toBeNull();
-  });
-
-  it("shows no delta for the machine menu in the header", async () => {
-    renderCard([{ label: "Weekly limit", used: 42 }]);
-    unmount = mountCardPace({ signal: controller.signal });
-    await settle();
-    hover(document.querySelector("[data-provider-usage-header] button[aria-expanded]")!);
-    expect(tooltip().hidden).toBe(true);
-  });
-
-  it("adds no element to the row itself, so the card layout never changes", async () => {
-    renderCard([{ label: "Weekly limit", used: 42 }]);
-    unmount = mountCardPace({ signal: controller.signal });
-    await settle();
-    const row = document.querySelector(".grid > button[aria-expanded]")!;
-    hover(row);
-    expect(row.children).toHaveLength(1);
-    expect(row.contains(tooltip())).toBe(false);
+    expect(detail(row!)).toBeNull();
   });
 
   it("does not add anything twice when the card changes", async () => {
-    renderCard([{ label: "Weekly limit", used: 42 }]);
-    unmount = mountCardPace({ signal: controller.signal });
-    await settle();
+    const [weekly] = await mount([{ label: "Weekly limit", used: 42 }]);
+    hover(weekly!);
     document.querySelector(".fill")!.setAttribute("style", "width:43%");
     document.body.appendChild(document.createElement("div"));
     await frame();
     expect(document.querySelectorAll("[data-usage-pace-tick]")).toHaveLength(1);
-    expect(document.querySelectorAll("#usage-pace-delta")).toHaveLength(1);
+    expect(document.querySelectorAll("[data-usage-pace-detail]")).toHaveLength(1);
   });
 
-  it("removes its nodes and style on unmount", async () => {
-    renderCard([{ label: "Weekly limit", used: 42 }]);
-    unmount = mountCardPace({ signal: controller.signal });
-    await settle();
-    unmount();
+  it("removes its nodes and style, and puts the title back, on unmount", async () => {
+    const [weekly] = await mount([{ label: "Weekly limit", used: 42 }]);
+    hover(weekly!);
+    unmount!();
     unmount = undefined;
-    expect(document.querySelectorAll("[data-usage-pace-tick], [data-usage-pace-band], #usage-pace-delta")).toHaveLength(0);
+    expect(
+      document.querySelectorAll("[data-usage-pace-tick], [data-usage-pace-band], [data-usage-pace-detail]"),
+    ).toHaveLength(0);
     expect(document.getElementById("usage-pace-card-style")).toBeNull();
+    expect(weekly!.getAttribute("title")).toBe("Weekly limit · Resets Tue 3:59 PM");
   });
 });
