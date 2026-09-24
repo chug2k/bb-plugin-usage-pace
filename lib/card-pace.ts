@@ -67,6 +67,11 @@ const STYLE = `
   background: var(--sidebar-foreground, currentColor);
   opacity: 0.15;
 }
+/* bb's expanded line ("Resets in 3 hr 26 min") repeats the reset time the
+   row already shows. Hide it while the delta is in the row. */
+button:has(> [${DETAIL_ATTR}]) > :not(:first-child):not([${DETAIL_ATTR}]) {
+  display: none;
+}
 [${DETAIL_ATTR}] {
   grid-column: 1 / -1;
   text-align: right;
@@ -214,8 +219,8 @@ function decorateRow(
   if (tick.style.left !== left) tick.style.left = left;
 
   // bb expands the row on tap and adds its reset line as the last child.
-  // The delta goes after it; appendChild also moves it back to the end if
-  // React adds its line later. It is always right-aligned, under the dates.
+  // The delta goes after it (the style hides bb's line); appendChild also
+  // moves it back to the end if React adds its line later. It is always right-aligned, under the dates.
   const expanded = row.getAttribute("aria-expanded") === "true";
   if (expanded || hovered) {
     if (detail === null) {

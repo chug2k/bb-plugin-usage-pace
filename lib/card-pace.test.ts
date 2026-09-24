@@ -277,6 +277,9 @@ describe("mountCardPace", () => {
     expect(line.previousElementSibling).toBe(reset);
     expect(getComputedStyle(line).textAlign).toBe("right");
     expect(line.textContent).toMatch(/^15% ahead of pace/u);
+    // bb's own reset line repeats the row's reset time: it is hidden.
+    expect(getComputedStyle(reset).display).toBe("none");
+    expect(getComputedStyle(row!.firstElementChild!).display).not.toBe("none");
 
     // What bb does on the second tap.
     row!.setAttribute("aria-expanded", "false");
