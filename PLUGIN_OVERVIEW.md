@@ -38,13 +38,14 @@ early to judge pace".
 ## Requirements and data
 
 The plugin reads the data that bb's built-in Provider usage card already has,
-from that card's cache, so it adds no provider requests.
+from that card's cache, so it adds no provider requests. It only adds
+elements to bb's card. If a bb update changes the card, the tick and the
+lines stop showing, and nothing else breaks.
 
 For Grok Build, it registers a companion provider, "Grok Build (usage)", so
-bb's provider picker shows it next to bb's own "Grok Build". It reads the Grok CLI login from `grok login` and
-asks xAI's billing service for the credit window. A setting turns this off. It only adds elements to bb's card. If a bb
-update changes the card, the tick and the lines stop showing, and nothing else
-breaks.
+bb's provider picker shows it next to bb's own "Grok Build". It reads the
+Grok CLI login from `grok login` and asks xAI's billing service for the
+credit window. A setting turns this off.
 
 Usage Pace is a fork of Usage Bar by Dmitrii Kapustin (MIT). The optional
 Usage Bar footer strip is still in the plugin, off by default. The Grok Build
