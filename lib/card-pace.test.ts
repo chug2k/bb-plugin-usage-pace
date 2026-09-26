@@ -1,6 +1,13 @@
 // @vitest-environment jsdom
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { matchRow, mountCardPace, parseCardUsage, type CardProvider } from "./card-pace";
+import {
+  hideTabs,
+  matchRow,
+  mountCardPace,
+  parseCardSettings,
+  parseCardUsage,
+  type CardProvider,
+} from "./card-pace";
 
 const HOUR = 3_600_000;
 const NOW = Date.parse("2026-09-24T06:20:00Z");
@@ -127,15 +134,23 @@ describe("mountCardPace", () => {
   let controller: AbortController;
   let unmount: (() => void) | undefined;
   let fetchMock: ReturnType<typeof vi.fn>;
+  let hidden: string[] = [];
 
   beforeEach(() => {
     vi.useFakeTimers({ now: NOW, toFake: ["Date"] });
-    fetchMock = vi.fn(async () => new Response(JSON.stringify(cardResponse())));
+    fetchMock = vi.fn(async (url: string) =>
+      new Response(
+        JSON.stringify(
+          url.includes("getCardSettings") ? { ok: true, result: { hiddenProviders: hidden } } : cardResponse(),
+        ),
+      ),
+    );
     vi.stubGlobal("fetch", fetchMock);
     controller = new AbortController();
   });
 
   afterEach(() => {
+    hidden = [];
     unmount?.();
     unmount = undefined;
     controller.abort();
@@ -288,6 +303,16 @@ describe("mountCardPace", () => {
     expect(detail(row!)).toBeNull();
   });
 
+  it("hides the provider tabs named in the settings", async () => {
+    hidden = ["codex"];
+    await mount([{ label: "Weekly limit", used: 42 }]);
+    const codex = document.querySelector<HTMLElement>('[role="tab"][aria-label="Codex"]')!;
+    expect(codex.hasAttribute("data-usage-pace-hidden")).toBe(true);
+    expect(getComputedStyle(codex).display).toBe("none");
+    const claude = document.querySelector<HTMLElement>('[role="tab"][aria-label="Claude Code"]')!;
+    expect(getComputedStyle(claude).display).not.toBe("none");
+  });
+
   it("does not add anything twice when the card changes", async () => {
     const [weekly] = await mount([{ label: "Weekly limit", used: 42 }]);
     hover(weekly!);
@@ -296,6 +321,14 @@ describe("mountCardPace", () => {
     await frame();
     expect(document.querySelectorAll("[data-usage-pace-tick]")).toHaveLength(1);
     expect(document.querySelectorAll("[data-usage-pace-detail]")).toHaveLength(1);
+  });
+
+  it("shows hidden tabs again on unmount", async () => {
+    hidden = ["codex"];
+    await mount([{ label: "Weekly limit", used: 42 }]);
+    unmount!();
+    unmount = undefined;
+    expect(document.querySelectorAll("[data-usage-pace-hidden]")).toHaveLength(0);
   });
 
   it("removes its nodes and style, and puts the title back, on unmount", async () => {
@@ -308,5 +341,48 @@ describe("mountCardPace", () => {
     ).toHaveLength(0);
     expect(document.getElementById("usage-pace-card-style")).toBeNull();
     expect(weekly!.getAttribute("title")).toBe("Weekly limit · Resets Tue 3:59 PM");
+  });
+});
+
+describe("hideTabs", () => {
+  function tabs(selected: string) {
+    document.body.innerHTML = `<div data-provider-usage-header>${["Claude Code", "Cursor", "opencode"]
+      .map((name) => `<button role="tab" aria-label="${name}" aria-selected="${name === selected}"></button>`)
+      .join("")}</div>`;
+    const header = document.querySelector("[data-provider-usage-header]")!;
+    // What bb does when a tab is clicked.
+    for (const tab of header.querySelectorAll("[role=tab]")) {
+      tab.addEventListener("click", () => {
+        for (const other of header.querySelectorAll("[role=tab]")) other.setAttribute("aria-selected", String(other === tab));
+      });
+    }
+    return header;
+  }
+  const selectedName = (header: Element) =>
+    header.querySelector('[aria-selected="true"]')?.getAttribute("aria-label");
+
+  it("matches names without regard to case", () => {
+    const header = tabs("Claude Code");
+    hideTabs(header, parseCardSettings({ ok: true, result: { hiddenProviders: ["CURSOR"] } }));
+    expect(header.querySelector('[aria-label="Cursor"]')!.hasAttribute("data-usage-pace-hidden")).toBe(true);
+    expect(selectedName(header)).toBe("Claude Code");
+  });
+
+  it("selects the first visible tab when the selected tab is hidden", () => {
+    const header = tabs("Cursor");
+    hideTabs(header, ["cursor"]);
+    expect(selectedName(header)).toBe("Claude Code");
+  });
+
+  it("shows a tab again when its name leaves the list", () => {
+    const header = tabs("Claude Code");
+    hideTabs(header, ["cursor"]);
+    hideTabs(header, []);
+    expect(header.querySelectorAll("[data-usage-pace-hidden]")).toHaveLength(0);
+  });
+
+  it("reads an empty list from an error or an unknown shape", () => {
+    expect(parseCardSettings({ ok: false })).toEqual([]);
+    expect(parseCardSettings(null)).toEqual([]);
   });
 });

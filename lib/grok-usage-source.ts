@@ -149,7 +149,7 @@ export function createGrokUsageSource(
         accountKey: null,
         id: `${RESOURCE_PREFIX}${host.id}`,
         providerId: GROK_PROVIDER_ID,
-        label: "Grok Build",
+        label: "Grok Build (usage)",
         scope: { kind: "host", hostId: host.id, hostName: host.name },
       });
     }

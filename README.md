@@ -61,14 +61,22 @@ A monthly window ("Monthly credits") starts one calendar month before its reset.
 
 This is a straight-line projection. Nights and weekends usually lower the real rate. In the first 5% of a window, the plugin shows "too early to judge pace" and no projection.
 
+## Hide providers in the card
+
+bb lists some providers on every machine, installed or not. Cursor is one of them. Set *Hide these providers in bb's usage card* to a comma-separated list of names as the card shows them, for example `Cursor`. The provider picker still lists them.
+
+```sh
+bb plugin config usage-pace set hiddenCardProviders "Cursor"
+```
+
 ## Grok Build
 
 bb runs Grok Build through its built-in ACP provider (`acp-grok`), and that provider reports no usage, so bb's usage card has no Grok tab. Usage Pace adds one:
 
-- It registers a companion provider, `usage-pace-grok` ("Grok Build"), listed only on hosts where the `grok` command is installed. It runs the same Grok Build agent, and it also answers bb's usage request: it reads the Grok CLI login (`~/.grok/auth.json`, made by `grok login`) and asks xAI's billing service (`cli-chat-proxy.grok.com`) for the credit window and its reset.
+- It registers a companion provider, `usage-pace-grok` ("Grok Build (usage)"), listed only on hosts where the `grok` command is installed. It runs the same Grok Build agent, and it also answers bb's usage request: it reads the Grok CLI login (`~/.grok/auth.json`, made by `grok login`) and asks xAI's billing service (`cli-chat-proxy.grok.com`) for the credit window and its reset.
 - It serves bb's `provider-usage.v1` source contract for that provider, so the card shows a Grok Build tab. The tab gets the tick, the band and the hover lines like every other tab.
 
-Because the companion is a full provider, bb's provider picker shows "Grok Build" twice. Threads on either one run the same agent.
+Because the companion is a full provider, bb's provider picker shows it next to bb's own "Grok Build". Threads on either one run the same agent.
 
 Turn this off with the *Add Grok Build usage to bb's usage card* setting, then reload the plugin. Do not also install Grok Build Usage: both plugins then add a Grok tab.
 

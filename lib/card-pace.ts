@@ -3,6 +3,8 @@
 // script mostly adds nodes to it:
 //   - an even-pace tick on each window's bar, and a band between the used
 //     percent and that tick: red when ahead of pace, faint when under it;
+//   - provider tabs the user hid in the settings (bb lists some providers,
+//     such as Cursor, on every machine, installed or not);
 //   - the delta from even pace, as a line inside the row, under the dates.
 //     It shows while the pointer is over the row (mouse only), and when bb
 //     expands the row on tap, click or Enter (the touch path).
@@ -35,6 +37,9 @@ const DETAIL_ATTR = "data-usage-pace-detail";
 const TITLE_ATTR = "data-usage-pace-title";
 /** Hover only where a pointer can hover; touch uses bb's tap to expand. */
 const HOVER_QUERY = "(hover: hover) and (pointer: fine)";
+/** Marks a provider tab that the user hid; the style hides it. */
+const HIDDEN_ATTR = "data-usage-pace-hidden";
+const SETTINGS_RPC_URL = "/api/v1/plugins/usage-pace/rpc/getCardSettings";
 const STYLE_ID = "usage-pace-card-style";
 const MACHINE_PREFIX = "Usage machine: ";
 const CARD_RPC_URL = "/api/v1/plugins/provider-usage/rpc/getUsage";
@@ -42,6 +47,9 @@ const CARD_MAX_AGE_MS = 5 * 60_000;
 const REFETCH_MS = 60_000;
 
 const STYLE = `
+[role="tab"][${HIDDEN_ATTR}] {
+  display: none !important;
+}
 [${TICK_ATTR}] {
   position: absolute;
   top: 0;
@@ -112,6 +120,14 @@ export function parseCardUsage(body: unknown): CardProvider[] {
     }
   }
   return out;
+}
+
+/** Reads this plugin's getCardSettings result: lowercase provider names. */
+export function parseCardSettings(body: unknown): string[] {
+  const list = (body as { result?: { hiddenProviders?: unknown } } | null)?.result?.hiddenProviders;
+  return Array.isArray(list)
+    ? list.filter((name): name is string => typeof name === "string").map((name) => name.toLowerCase())
+    : [];
 }
 
 export interface RowMatch {
@@ -246,6 +262,26 @@ function cardRows(header: Element): HTMLElement[] {
   );
 }
 
+/**
+ * Hides the provider tabs named in `hidden` (lowercase names). When the
+ * selected tab is hidden, selects the first visible tab instead.
+ */
+export function hideTabs(header: Element, hidden: readonly string[]) {
+  const tabs = [...header.querySelectorAll<HTMLElement>('[role="tab"]')];
+  for (const tab of tabs) {
+    const name = tab.getAttribute("aria-label")?.trim().toLowerCase() ?? "";
+    const hide = hidden.includes(name);
+    if (hide !== tab.hasAttribute(HIDDEN_ATTR)) {
+      if (hide) tab.setAttribute(HIDDEN_ATTR, "");
+      else tab.removeAttribute(HIDDEN_ATTR);
+    }
+  }
+  const selected = tabs.find((tab) => tab.getAttribute("aria-selected") === "true");
+  if (selected?.hasAttribute(HIDDEN_ATTR)) {
+    tabs.find((tab) => !tab.hasAttribute(HIDDEN_ATTR))?.click();
+  }
+}
+
 function decorateCard(
   header: Element,
   providers: readonly CardProvider[],
@@ -279,6 +315,7 @@ export function mountCardPace({ signal }: { signal: AbortSignal }) {
   }
 
   let providers: CardProvider[] = [];
+  let hiddenProviders: string[] = [];
   let fetchedAt = 0;
   let fetching = false;
   const decorated = new WeakSet<HTMLElement>();
@@ -291,7 +328,10 @@ export function mountCardPace({ signal }: { signal: AbortSignal }) {
     if (headers.length === 0) return;
     const now = Date.now();
     if (now - fetchedAt > REFETCH_MS) void load();
-    for (const header of headers) decorateCard(header, providers, now, hovered, decorated);
+    for (const header of headers) {
+      hideTabs(header, hiddenProviders);
+      decorateCard(header, providers, now, hovered, decorated);
+    }
     // React puts a changed title back; hold it again.
     if (hovered !== null) holdTitle(hovered);
   };
@@ -341,21 +381,22 @@ export function mountCardPace({ signal }: { signal: AbortSignal }) {
     if (fetching) return;
     fetching = true;
     fetchedAt = Date.now();
-    try {
-      const response = await fetch(CARD_RPC_URL, {
+    const post = (url: string, body: unknown) =>
+      fetch(url, {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({
-          force: false,
-          machineIds: null,
-          providerId: null,
-          maxAgeMs: CARD_MAX_AGE_MS,
-        }),
+        body: JSON.stringify(body),
         signal,
-      });
-      providers = parseCardUsage(await response.json());
-    } catch {
-      // Keep the last data; the next run tries again after REFETCH_MS.
+      }).then((response) => response.json());
+    // Each read keeps its last value when it fails; the next run tries
+    // again after REFETCH_MS.
+    const [card, settings] = await Promise.allSettled([
+      post(CARD_RPC_URL, { force: false, machineIds: null, providerId: null, maxAgeMs: CARD_MAX_AGE_MS }),
+      post(SETTINGS_RPC_URL, {}),
+    ]);
+    try {
+      if (card.status === "fulfilled") providers = parseCardUsage(card.value);
+      if (settings.status === "fulfilled") hiddenProviders = parseCardSettings(settings.value);
     } finally {
       fetching = false;
       schedule();
@@ -381,6 +422,9 @@ export function mountCardPace({ signal }: { signal: AbortSignal }) {
       `[${TICK_ATTR}], [${BAND_ATTR}], [${DETAIL_ATTR}]`,
     )) {
       node.remove();
+    }
+    for (const tab of document.querySelectorAll(`[${HIDDEN_ATTR}]`)) {
+      tab.removeAttribute(HIDDEN_ATTR);
     }
     document.getElementById(STYLE_ID)?.remove();
   };

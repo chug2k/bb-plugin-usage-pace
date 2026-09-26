@@ -55,7 +55,19 @@ export const rpcContract = defineRpcContract({
     input: z.object({ force: z.boolean().optional() }).nullable(),
     output: snapshotSchema,
   },
+  getCardSettings: {
+    input: z.object({}).nullable(),
+    output: z.object({ hiddenProviders: z.array(z.string()) }),
+  },
 });
+
+/** "Cursor, opencode" -> ["cursor", "opencode"]. */
+export function parseProviderList(value: string): string[] {
+  return value
+    .split(",")
+    .map((name) => name.trim().toLowerCase())
+    .filter((name) => name !== "");
+}
 
 const WEEKLY_PATTERN = /(week|7\s*[-‑]?\s*day|7d\b|weekly)/iu;
 
@@ -127,6 +139,12 @@ export default async function plugin(bb: BbPluginApi) {
       label: "Also show the Usage Pace strip above the sidebar footer",
       default: false,
     },
+    hiddenCardProviders: {
+      type: "string",
+      label: "Hide these providers in bb's usage card",
+      description: "Provider names as the card shows them, separated by commas. For example: Cursor",
+      default: "",
+    },
     grokUsage: {
       type: "boolean",
       label: "Add Grok Build usage to bb's usage card (takes effect after a plugin reload)",
@@ -135,10 +153,12 @@ export default async function plugin(bb: BbPluginApi) {
   });
   let cacheMs = 5 * 60_000;
   let showStrip = false;
+  let hiddenProviders: string[] = [];
   const applySettings = async () => {
     const values = await settings.get();
     cacheMs = Math.max(0.5, Number(values.cacheMinutes) || 5) * 60_000;
     showStrip = values.showStrip === true;
+    hiddenProviders = parseProviderList(String(values.hiddenCardProviders ?? ""));
   };
   await applySettings();
   // bb registers providers when the plugin loads, so this setting applies
@@ -220,6 +240,7 @@ export default async function plugin(bb: BbPluginApi) {
 
   bb.rpc.register(rpcContract, {
     getTokens: (input) => getTokens(input.timeZone, input.force),
+    getCardSettings: () => ({ hiddenProviders }),
     getUsage: async (input) => ({
       ...(await getUsage(input?.force === true)),
       showStrip,

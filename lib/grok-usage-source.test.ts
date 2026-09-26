@@ -58,7 +58,7 @@ describe("Grok usage source", () => {
         accountKey: null,
         id: "grok:host_a",
         providerId: GROK_PROVIDER_ID,
-        label: "Grok Build",
+        label: "Grok Build (usage)",
         scope: { kind: "host", hostId: "host_a", hostName: "MacBook Pro (7)" },
       },
     ]);

@@ -18,6 +18,8 @@ days to go, are you fine or not? Usage Pace answers that in the same card.
 - **Grok Build in the card.** bb's Grok provider reports no usage. Usage
   Pace adds a Grok Build tab with the weekly or monthly credits and their
   pace.
+- **Fewer tabs.** bb lists some providers, such as Cursor, on every
+  machine. A setting hides the tabs you do not use.
 - **`bb usage-pace`** prints each window with its pace in a terminal, and
   `--json` gives agents a `pace` object for each window.
 
@@ -38,8 +40,8 @@ early to judge pace".
 The plugin reads the data that bb's built-in Provider usage card already has,
 from that card's cache, so it adds no provider requests.
 
-For Grok Build, it registers a companion provider, so bb's provider picker
-shows "Grok Build" twice. It reads the Grok CLI login from `grok login` and
+For Grok Build, it registers a companion provider, "Grok Build (usage)", so
+bb's provider picker shows it next to bb's own "Grok Build". It reads the Grok CLI login from `grok login` and
 asks xAI's billing service for the credit window. A setting turns this off. It only adds elements to bb's card. If a bb
 update changes the card, the tick and the lines stop showing, and nothing else
 breaks.

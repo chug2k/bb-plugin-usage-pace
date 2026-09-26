@@ -51,7 +51,9 @@ export const GROK_LAUNCH_SPEC = {
 export function registerGrokProvider(bb: BbPluginApi) {
   bb.providers.register({
     id: GROK_PROVIDER_ID,
-    displayName: "Grok Build",
+    // Not "Grok Build": bb's own acp-grok provider has that name, and the
+    // picker shows both.
+    displayName: "Grok Build (usage)",
     family: "grok-build",
     icon: "./assets/icons/grok.svg",
     experimental_bridgeOptions: {
