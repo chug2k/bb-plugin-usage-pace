@@ -8,6 +8,7 @@ import {
   formatRunsOut,
   paceFor,
   paceForWindows,
+  oneMonthBefore,
   windowDurationMs,
   windowLengths,
 } from "./pace";
@@ -42,6 +43,43 @@ describe("windowDurationMs", () => {
 
   it("reads a session as five hours", () => {
     expect(windowDurationMs("Current session")).toBe(5 * HOUR);
+  });
+
+  it("reads Grok Build's weekly credits as seven days", () => {
+    expect(windowDurationMs("Weekly credits")).toBe(168 * HOUR);
+  });
+
+  it("reads a monthly window as the calendar month before the reset", () => {
+    // 1 Sep -> 1 Oct: 30 days.
+    expect(windowDurationMs("Monthly credits", Date.parse("2026-10-01T00:00:00Z"))).toBe(30 * 24 * HOUR);
+    // 1 Feb -> 1 Mar 2026: 28 days.
+    expect(windowDurationMs("Monthly credits", Date.parse("2026-03-01T00:00:00Z"))).toBe(28 * 24 * HOUR);
+    // No reset time: no length.
+    expect(windowDurationMs("Monthly credits")).toBeNull();
+  });
+});
+
+describe("oneMonthBefore", () => {
+  it.each([
+    ["2026-10-01T00:00:00Z", "2026-09-01T00:00:00.000Z"],
+    ["2026-01-15T12:30:00Z", "2025-12-15T12:30:00.000Z"],
+    ["2026-03-31T08:00:00Z", "2026-02-28T08:00:00.000Z"],
+    ["2028-03-31T08:00:00Z", "2028-02-29T08:00:00.000Z"],
+  ])("gives the moment one month before %s", (at, expected) => {
+    expect(new Date(oneMonthBefore(Date.parse(at))).toISOString()).toBe(expected);
+  });
+});
+
+describe("Grok Build monthly credits", () => {
+  it("projects the pace over the calendar month", () => {
+    // 40% used, 10 of 30 days passed (reset 1 Oct, now 11 Sep).
+    const now = Date.parse("2026-09-11T00:00:00Z");
+    const pace = paceFor({ label: "Monthly credits", usedPercent: 40, resetsAt: "2026-10-01T00:00:00.000Z" }, now)!;
+    expect(pace.windowMs).toBe(30 * 24 * HOUR);
+    expect(pace.elapsedFraction).toBeCloseTo(1 / 3);
+    expect(pace.projectedPercent).toBeCloseTo(120);
+    // 60% left over 20 days.
+    expect(formatBudget(pace)).toBe("3.0%/day");
   });
 });
 

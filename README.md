@@ -5,7 +5,7 @@
 
 Tells you if the current burn rate lasts until each quota window resets. If the rate does not last, it tells you when the quota runs out and how long you will be without quota.
 
-A fork of [Usage Bar](https://github.com/dmitriikapustin/bb-plugins-by-kapustin/tree/main/plugins/usage-bar) by Dmitrii Kapustin (MIT). The pace calculation and the usage-card integration are new. The optional footer strip, the dialog, the token totals and the CLI come from Usage Bar.
+A fork of [Usage Bar](https://github.com/dmitriikapustin/bb-plugins-by-kapustin/tree/main/plugins/usage-bar) by Dmitrii Kapustin (MIT). The pace calculation and the usage-card integration are new. The optional footer strip, the dialog, the token totals and the CLI come from Usage Bar. The Grok Build usage comes from [Grok Build Usage](https://github.com/MacHatter1/bb-plugin-grok-build-usage) by MacHatter1 (MIT).
 
 ## What it shows
 
@@ -57,7 +57,20 @@ Providers report only `usedPercent` and `resetsAt` for each window. The window l
 - runs out = now + elapsed × (100 − used) ÷ used, if that is before the reset
 - time without quota = reset − runs out
 
+A monthly window ("Monthly credits") starts one calendar month before its reset.
+
 This is a straight-line projection. Nights and weekends usually lower the real rate. In the first 5% of a window, the plugin shows "too early to judge pace" and no projection.
+
+## Grok Build
+
+bb runs Grok Build through its built-in ACP provider (`acp-grok`), and that provider reports no usage, so bb's usage card has no Grok tab. Usage Pace adds one:
+
+- It registers a companion provider, `usage-pace-grok` ("Grok Build"), listed only on hosts where the `grok` command is installed. It runs the same Grok Build agent, and it also answers bb's usage request: it reads the Grok CLI login (`~/.grok/auth.json`, made by `grok login`) and asks xAI's billing service (`cli-chat-proxy.grok.com`) for the credit window and its reset.
+- It serves bb's `provider-usage.v1` source contract for that provider, so the card shows a Grok Build tab. The tab gets the tick, the band and the hover lines like every other tab.
+
+Because the companion is a full provider, bb's provider picker shows "Grok Build" twice. Threads on either one run the same agent.
+
+Turn this off with the *Add Grok Build usage to bb's usage card* setting, then reload the plugin. Do not also install Grok Build Usage: both plugins then add a Grok tab.
 
 ## Install
 
@@ -71,7 +84,7 @@ From a local checkout:
 bb plugin install ./
 ```
 
-If you turn on the strip, do not also install Usage Bar. Both plugins put a strip in the same footer.
+If you turn on the strip, do not also install Usage Bar. Both plugins put a strip in the same footer. With the Grok setting on (the default), do not also install Grok Build Usage.
 
 ## From the terminal
 

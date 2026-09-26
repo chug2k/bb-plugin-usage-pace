@@ -15,6 +15,9 @@ days to go, are you fine or not? Usage Pace answers that in the same card.
   that lasts to the reset.
 - **The same on a touch screen.** Tap a row to show the lines. Tap again to
   hide them.
+- **Grok Build in the card.** bb's Grok provider reports no usage. Usage
+  Pace adds a Grok Build tab with the weekly or monthly credits and their
+  pace.
 - **`bb usage-pace`** prints each window with its pace in a terminal, and
   `--json` gives agents a `pace` object for each window.
 
@@ -33,10 +36,14 @@ early to judge pace".
 ## Requirements and data
 
 The plugin reads the data that bb's built-in Provider usage card already has,
-from that card's cache, so it adds no provider requests. It needs no
-credentials or external service. It only adds elements to bb's card. If a bb
+from that card's cache, so it adds no provider requests.
+
+For Grok Build, it registers a companion provider, so bb's provider picker
+shows "Grok Build" twice. It reads the Grok CLI login from `grok login` and
+asks xAI's billing service for the credit window. A setting turns this off. It only adds elements to bb's card. If a bb
 update changes the card, the tick and the lines stop showing, and nothing else
 breaks.
 
 Usage Pace is a fork of Usage Bar by Dmitrii Kapustin (MIT). The optional
-Usage Bar footer strip is still in the plugin, off by default.
+Usage Bar footer strip is still in the plugin, off by default. The Grok Build
+usage comes from Grok Build Usage by MacHatter1 (MIT).

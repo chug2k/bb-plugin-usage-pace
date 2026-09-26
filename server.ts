@@ -7,6 +7,8 @@
 // cached: it depends on the current time, so each reader computes it.
 import { defineRpcContract, type BbPluginApi } from "@get-bb/plugin-sdk";
 import { z } from "zod";
+import { registerGrokProvider } from "./lib/grok-provider";
+import { createGrokUsageSource, grokUsageSourceContract } from "./lib/grok-usage-source";
 import { describePace, paceForWindows } from "./lib/pace";
 import { createTokenTotals } from "./lib/token-totals";
 
@@ -125,6 +127,11 @@ export default async function plugin(bb: BbPluginApi) {
       label: "Also show the Usage Pace strip above the sidebar footer",
       default: false,
     },
+    grokUsage: {
+      type: "boolean",
+      label: "Add Grok Build usage to bb's usage card (takes effect after a plugin reload)",
+      default: true,
+    },
   });
   let cacheMs = 5 * 60_000;
   let showStrip = false;
@@ -134,6 +141,18 @@ export default async function plugin(bb: BbPluginApi) {
     showStrip = values.showStrip === true;
   };
   await applySettings();
+  // bb registers providers when the plugin loads, so this setting applies
+  // after a reload.
+  if ((await settings.get()).grokUsage !== false) {
+    registerGrokProvider(bb);
+    // bb's usage card shows the providers of plugins that serve this
+    // discoverable contract; the provider alone does not add a Grok tab.
+    bb.rpc.register(grokUsageSourceContract, createGrokUsageSource(bb), {
+      experimental_discoverable: true,
+      experimental_description:
+        "Grok Build usage from Usage Pace. Inventory reads metadata only.",
+    });
+  }
   settings.onChange?.(() => {
     void applySettings().then(() => {
       bb.realtime.publish("usage-changed", { fetchedAt: new Date().toISOString() });

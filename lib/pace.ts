@@ -70,8 +70,32 @@ const DURATION_PATTERN = new RegExp(
   "iu",
 );
 
-/** Window length from a provider label, or null when the label has none. */
-export function windowDurationMs(label: string): number | null {
+/**
+ * The moment one calendar month before `atMs`, in UTC. A day that the
+ * earlier month does not have becomes its last day (31 Mar -> 28 Feb).
+ */
+export function oneMonthBefore(atMs: number): number {
+  const at = new Date(atMs);
+  const year = at.getUTCFullYear();
+  const month = at.getUTCMonth() - 1;
+  const lastDay = new Date(Date.UTC(year, month + 1, 0)).getUTCDate();
+  return Date.UTC(
+    year,
+    month,
+    Math.min(at.getUTCDate(), lastDay),
+    at.getUTCHours(),
+    at.getUTCMinutes(),
+    at.getUTCSeconds(),
+    at.getUTCMilliseconds(),
+  );
+}
+
+/**
+ * Window length from a provider label, or null when the label has none.
+ * A monthly window ("Monthly credits") has no fixed length: it needs the
+ * reset time, and starts one calendar month before it.
+ */
+export function windowDurationMs(label: string, resetsAtMs?: number): number | null {
   const match = DURATION_PATTERN.exec(label);
   if (match !== null) {
     const unit = UNIT_MS[match[2]!.toLowerCase()];
@@ -80,6 +104,10 @@ export function windowDurationMs(label: string): number | null {
   }
   if (/\bweek(ly)?\b/iu.test(label)) return 7 * DAY_MS;
   if (/\bdaily\b/iu.test(label)) return DAY_MS;
+  if (/\bmonth(ly)?\b/iu.test(label)) {
+    if (resetsAtMs === undefined || !Number.isFinite(resetsAtMs)) return null;
+    return resetsAtMs - oneMonthBefore(resetsAtMs);
+  }
   // Claude Code and Codex both call their five-hour window a "session".
   if (/\bsession\b/iu.test(label)) return 5 * HOUR_MS;
   return null;
@@ -94,9 +122,11 @@ const SAME_RESET_MS = HOUR_MS;
  * moment ("Weekly limit").
  */
 export function windowLengths(windows: readonly PaceInput[]): (number | null)[] {
-  const fromLabels = windows.map((window) => windowDurationMs(window.label));
   const resets = windows.map((window) =>
     window.resetsAt === null ? Number.NaN : new Date(window.resetsAt).getTime(),
+  );
+  const fromLabels = windows.map((window, index) =>
+    windowDurationMs(window.label, resets[index]),
   );
   return fromLabels.map((length, index) => {
     if (length !== null || !Number.isFinite(resets[index]!)) return length;
@@ -139,7 +169,10 @@ export function toneForProjection(projected: number | null): Tone {
 export function paceFor(
   window: PaceInput,
   now = Date.now(),
-  windowMs = windowDurationMs(window.label),
+  windowMs = windowDurationMs(
+    window.label,
+    window.resetsAt === null ? undefined : new Date(window.resetsAt).getTime(),
+  ),
 ): Pace | null {
   if (windowMs === null || window.resetsAt === null) return null;
   const resetsAtMs = new Date(window.resetsAt).getTime();
