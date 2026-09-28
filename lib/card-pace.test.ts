@@ -325,7 +325,7 @@ describe("mountCardPace", () => {
                 ok: true,
                 result: {
                   providers: [
-                    { displayName: "opencode", hostName: "MacBook Pro (7)", status: "error", message: "OpenCode Go usage access was denied." },
+                    { displayName: "Claude Code", hostName: "MacBook Pro (7)", status: "error", message: "Token expired." },
                   ],
                 },
               }
@@ -343,9 +343,8 @@ describe("mountCardPace", () => {
     localStorage.clear();
     unmount = mountCardPace({ signal: controller.signal });
     await settle();
-    expect(status.querySelector("[data-usage-pace-failure]")!.textContent).toBe(
-      "opencode: OpenCode Go usage access was denied.",
-    );
+    expect(status.querySelector("[data-usage-pace-failure]")!.textContent).toBe("Claude Code: Token expired.");
+    expect(getComputedStyle(status).display).not.toBe("none");
     status.querySelector<HTMLButtonElement>("[data-usage-pace-dismiss]")!.click();
     expect(getComputedStyle(status).display).toBe("none");
   });
@@ -428,12 +427,14 @@ describe("failure notice", () => {
   const REFRESH_FAILED = "Couldn\u2019t refresh usage. Showing the last available update.";
   const opencode = { provider: "opencode", machine: "MacBook Pro (7)", message: "OpenCode Go usage access was denied." };
 
-  /** bb's card with its status message. */
-  function card(message: string) {
+  /** bb's card with its status message; `selected` is the open tab. */
+  function card(message: string, selected = "opencode") {
     document.body.innerHTML = `
       <div class="card">
         <div data-provider-usage-header>
-          <button role="tab" aria-label="Claude Code" aria-selected="true"></button>
+          ${["Claude Code", "opencode", "Grok Build (usage)"]
+            .map((name) => `<button role="tab" aria-label="${name}" aria-selected="${name === selected}"></button>`)
+            .join("")}
           <button type="button" aria-expanded="false" aria-label="Usage machine: MacBook Pro (7)"></button>
         </div>
         <div role="status"><svg class="icon"></svg><span class="text">${message}</span></div>
@@ -481,10 +482,46 @@ describe("failure notice", () => {
     expect(button()!.getAttribute("aria-label")).toBe("Dismiss this message");
   });
 
+  it("hides the message on a tab whose provider did not fail", () => {
+    const header = card(REFRESH_FAILED, "Claude Code");
+    decorateFailure(header, [opencode], "MacBook Pro (7)", memory());
+    expect(status().hasAttribute("data-usage-pace-other-tab")).toBe(true);
+  });
+
+  it("shows the message, with that provider's error only, on the failed provider's tab", () => {
+    const grok = { ...opencode, provider: "Grok Build (usage)", message: "timed out" };
+    const header = card(REFRESH_FAILED, "opencode");
+    decorateFailure(header, [opencode, grok], "MacBook Pro (7)", memory());
+    expect(status().hasAttribute("data-usage-pace-other-tab")).toBe(false);
+    expect(line()!.textContent).toBe("opencode: OpenCode Go usage access was denied.");
+  });
+
+  it("puts a dot on each failed provider's tab", () => {
+    const header = card(REFRESH_FAILED, "Claude Code");
+    decorateFailure(header, [opencode], "MacBook Pro (7)", memory());
+    const dotted = [...header.querySelectorAll("[data-usage-pace-failed-tab]")].map((t) => t.getAttribute("aria-label"));
+    expect(dotted).toEqual(["opencode"]);
+  });
+
+  it("removes the dot when the provider no longer fails", () => {
+    const header = card(REFRESH_FAILED, "Claude Code");
+    decorateFailure(header, [opencode], "MacBook Pro (7)", memory());
+    decorateFailure(header, [], "MacBook Pro (7)", memory());
+    expect(header.querySelectorAll("[data-usage-pace-failed-tab]")).toHaveLength(0);
+  });
+
+  it("shows the message on every tab when no failed provider is known", () => {
+    const header = card(REFRESH_FAILED, "Claude Code");
+    decorateFailure(header, [], "MacBook Pro (7)", memory());
+    expect(status().hasAttribute("data-usage-pace-other-tab")).toBe(false);
+    expect(line()!.textContent).toBe("The provider that failed is not known.");
+  });
+
   it("shows only the failures of the card's machine", () => {
     const header = card(REFRESH_FAILED);
     decorateFailure(header, [{ ...opencode, machine: "Studio" }], "MacBook Pro (7)", memory());
     expect(line()!.textContent).toBe("The provider that failed is not known.");
+    expect(header.querySelectorAll("[data-usage-pace-failed-tab]")).toHaveLength(0);
   });
 
   it("hides the message on dismiss, and keeps it hidden for the same failure", () => {
@@ -506,9 +543,9 @@ describe("failure notice", () => {
     const header = card(REFRESH_FAILED);
     decorateFailure(header, [opencode], "MacBook Pro (7)", storage);
     button()!.click();
-    decorateFailure(header, [{ ...opencode, provider: "Grok Build (usage)", message: "timed out" }], "MacBook Pro (7)", storage);
+    decorateFailure(header, [{ ...opencode, message: "timed out" }], "MacBook Pro (7)", storage);
     expect(status().hasAttribute("data-usage-pace-dismissed")).toBe(false);
-    expect(line()!.textContent).toBe("Grok Build (usage): timed out");
+    expect(line()!.textContent).toBe("opencode: timed out");
   });
 
   it("leaves other status messages alone", () => {

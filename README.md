@@ -63,7 +63,13 @@ This is a straight-line projection. Nights and weekends usually lower the real r
 
 ## Which provider failed
 
-When one provider on a machine fails to refresh, bb's card shows "Couldn't refresh usage. Showing the last available update." on every tab, and does not say which provider failed. Usage Pace adds the provider and its error under that message, for example "opencode: OpenCode Go usage access was denied.". The × dismisses the message until a different provider fails or the error changes.
+When one provider on a machine fails to refresh, bb's card shows "Couldn't refresh usage. Showing the last available update." on every tab, and does not say which provider failed. Usage Pace moves the message to the tab of the provider that failed:
+
+- That tab gets a red dot, and shows bb's message with the provider's error, for example "opencode: OpenCode Go usage access was denied.".
+- The other tabs, whose data is current, show no message.
+- When the failed provider is not known, the message shows on every tab, as bb shows it.
+
+The × dismisses the message until a different provider fails or the error changes.
 
 ## Hide providers in the card
 

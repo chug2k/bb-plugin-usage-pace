@@ -3,10 +3,11 @@
 // script mostly adds nodes to it:
 //   - an even-pace tick on each window's bar, and a band between the used
 //     percent and that tick: red when ahead of pace, faint when under it;
-//   - which provider failed, under bb's "Couldn't refresh usage" message,
-//     and a button that dismisses the message. bb shows that message on
-//     every tab when one provider on the machine fails, and does not say
-//     which one. The failure comes from this plugin's own usage snapshot.
+//   - bb's "Couldn't refresh usage" message on the failed provider's tab
+//     only, with that provider's error, a red dot on that tab, and a button
+//     that dismisses the message. bb shows the message on every tab when
+//     one provider on the machine fails, and does not say which one. The
+//     failure comes from this plugin's own usage snapshot.
 //   - provider tabs the user hid in the settings (bb lists some providers,
 //     such as Cursor, on every machine, installed or not);
 //   - the delta from even pace, as a line inside the row, under the dates.
@@ -51,6 +52,10 @@ const FAILED_ATTR = "data-usage-pace-failed";
 const FAILURE_ATTR = "data-usage-pace-failure";
 const DISMISS_ATTR = "data-usage-pace-dismiss";
 const DISMISSED_ATTR = "data-usage-pace-dismissed";
+/** On bb's failure message on a tab whose provider did not fail. */
+const OTHER_TAB_ATTR = "data-usage-pace-other-tab";
+/** On the tab of a provider that failed: a red dot. */
+const FAILED_TAB_ATTR = "data-usage-pace-failed-tab";
 /** localStorage key: the failure the user dismissed. */
 const DISMISSED_KEY = "usage-pace:dismissed-failure";
 /** bb's texts: "Couldn’t refresh usage. …" and "Couldn’t load usage." */
@@ -71,8 +76,21 @@ const STYLE = `
   row-gap: 0.25rem;
   padding-right: 1.75rem;
 }
-[role="status"][${DISMISSED_ATTR}] {
+[role="status"][${DISMISSED_ATTR}],
+[role="status"][${OTHER_TAB_ATTR}] {
   display: none !important;
+}
+[role="tab"][${FAILED_TAB_ATTR}]::after {
+  content: "";
+  position: absolute;
+  right: 0.25rem;
+  bottom: 0.45rem;
+  width: 0.375rem;
+  height: 0.375rem;
+  border-radius: 9999px;
+  background: var(--destructive, #dc2626);
+  box-shadow: 0 0 0 2px var(--sidebar, #fff);
+  pointer-events: none;
 }
 [${FAILURE_ATTR}] {
   flex-basis: 100%;
@@ -343,9 +361,23 @@ export function describeFailures(failures: readonly ProviderFailure[]): string {
     .join("\n");
 }
 
+const tabName = (tab: Element) => tab.getAttribute("aria-label")?.trim().toLowerCase() ?? "";
+
+function toggleAttribute(element: Element, name: string, on: boolean) {
+  if (on === element.hasAttribute(name)) return;
+  if (on) element.setAttribute(name, "");
+  else element.removeAttribute(name);
+}
+
 /**
- * Adds the failed providers and a dismiss button to bb's failure message in
- * one card. A dismissed message stays hidden until the failure changes.
+ * Puts bb's failure message on the tab of the provider that failed only.
+ *
+ * bb shows the message on every tab of the machine. When this plugin knows
+ * which providers failed, the message shows on their tabs, with their
+ * errors, and is hidden on the other tabs, whose data is current; the
+ * failed tabs get a red dot. When no failed provider is known, the message
+ * shows on every tab, as bb shows it. The dismiss button hides the message
+ * until the failure changes.
  */
 export function decorateFailure(
   header: Element,
@@ -353,6 +385,12 @@ export function decorateFailure(
   machine: string | null,
   storage: Pick<Storage, "getItem" | "setItem"> | null,
 ) {
+  const here = failures.filter((failure) => machine === null || failure.machine === machine);
+  const failed = new Set(here.map((failure) => failure.provider.trim().toLowerCase()));
+  for (const tab of header.querySelectorAll('[role="tab"]')) {
+    toggleAttribute(tab, FAILED_TAB_ATTR, failed.has(tabName(tab)));
+  }
+
   const card = header.parentElement;
   const status = card?.querySelector<HTMLElement>('[role="status"]') ?? null;
   for (const other of card?.querySelectorAll<HTMLElement>(`[${FAILED_ATTR}]`) ?? []) {
@@ -368,12 +406,19 @@ export function decorateFailure(
     return;
   }
 
-  const here = failures.filter((failure) => machine === null || failure.machine === machine);
-  const detail = describeFailures(here);
+  const selectedTab = header.querySelector('[role="tab"][aria-selected="true"]');
+  const selected = selectedTab === null ? null : tabName(selectedTab);
+  const onFailedTab = selected !== null && failed.has(selected);
+  // Known failures, none of them on this tab: this tab's data is current.
+  toggleAttribute(status, OTHER_TAB_ATTR, failed.size > 0 && selected !== null && !onFailedTab);
+  const shown = onFailedTab
+    ? here.filter((failure) => failure.provider.trim().toLowerCase() === selected)
+    : here;
+  const detail = describeFailures(shown);
   // The key changes when another provider fails or the message changes.
   const key = `${machine ?? ""}|${text.trim()}|${detail}`;
 
-  if (!status.hasAttribute(FAILED_ATTR)) status.setAttribute(FAILED_ATTR, "");
+  toggleAttribute(status, FAILED_ATTR, true);
   let line = status.querySelector<HTMLElement>(`:scope > [${FAILURE_ATTR}]`);
   if (line === null) {
     line = document.createElement("span");
@@ -401,19 +446,13 @@ export function decorateFailure(
     storage?.setItem(DISMISSED_KEY, button!.dataset.key ?? "");
     status.setAttribute(DISMISSED_ATTR, "");
   };
-
-  const dismissed = storage?.getItem(DISMISSED_KEY) === key;
-  if (dismissed !== status.hasAttribute(DISMISSED_ATTR)) {
-    if (dismissed) status.setAttribute(DISMISSED_ATTR, "");
-    else status.removeAttribute(DISMISSED_ATTR);
-  }
+  toggleAttribute(status, DISMISSED_ATTR, storage?.getItem(DISMISSED_KEY) === key);
 }
 
 function clearFailure(status: HTMLElement) {
   status.querySelector(`:scope > [${FAILURE_ATTR}]`)?.remove();
   status.querySelector(`:scope > [${DISMISS_ATTR}]`)?.remove();
-  if (status.hasAttribute(FAILED_ATTR)) status.removeAttribute(FAILED_ATTR);
-  if (status.hasAttribute(DISMISSED_ATTR)) status.removeAttribute(DISMISSED_ATTR);
+  for (const name of [FAILED_ATTR, DISMISSED_ATTR, OTHER_TAB_ATTR]) toggleAttribute(status, name, false);
 }
 
 function cardMachine(header: Element): string | null {
@@ -592,6 +631,9 @@ export function mountCardPace({ signal }: { signal: AbortSignal }) {
     }
     for (const status of document.querySelectorAll<HTMLElement>(`[${FAILED_ATTR}]`)) {
       clearFailure(status);
+    }
+    for (const tab of document.querySelectorAll(`[${FAILED_TAB_ATTR}]`)) {
+      tab.removeAttribute(FAILED_TAB_ATTR);
     }
     for (const tab of document.querySelectorAll(`[${HIDDEN_ATTR}]`)) {
       tab.removeAttribute(HIDDEN_ATTR);
