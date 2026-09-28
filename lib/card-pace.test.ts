@@ -1,7 +1,10 @@
 // @vitest-environment jsdom
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
+  decorateFailure,
+  describeFailures,
   hideTabs,
+  parseFailures,
   matchRow,
   mountCardPace,
   parseCardSettings,
@@ -313,6 +316,40 @@ describe("mountCardPace", () => {
     expect(getComputedStyle(claude).display).not.toBe("none");
   });
 
+  it("names the failed provider under bb's failure message, and hides it on dismiss", async () => {
+    fetchMock.mockImplementation(async (url: string) =>
+      new Response(
+        JSON.stringify(
+          url.includes("usage-pace/rpc/getUsage")
+            ? {
+                ok: true,
+                result: {
+                  providers: [
+                    { displayName: "opencode", hostName: "MacBook Pro (7)", status: "error", message: "OpenCode Go usage access was denied." },
+                  ],
+                },
+              }
+            : url.includes("getCardSettings")
+              ? { ok: true, result: { hiddenProviders: [] } }
+              : cardResponse(),
+        ),
+      ),
+    );
+    renderCard([{ label: "Weekly limit", used: 42 }]);
+    const status = document.createElement("div");
+    status.setAttribute("role", "status");
+    status.innerHTML = "<svg></svg><span>Couldn\u2019t refresh usage. Showing the last available update.</span>";
+    document.querySelector("[data-provider-usage-header]")!.after(status);
+    localStorage.clear();
+    unmount = mountCardPace({ signal: controller.signal });
+    await settle();
+    expect(status.querySelector("[data-usage-pace-failure]")!.textContent).toBe(
+      "opencode: OpenCode Go usage access was denied.",
+    );
+    status.querySelector<HTMLButtonElement>("[data-usage-pace-dismiss]")!.click();
+    expect(getComputedStyle(status).display).toBe("none");
+  });
+
   it("does not add anything twice when the card changes", async () => {
     const [weekly] = await mount([{ label: "Weekly limit", used: 42 }]);
     hover(weekly!);
@@ -384,5 +421,120 @@ describe("hideTabs", () => {
   it("reads an empty list from an error or an unknown shape", () => {
     expect(parseCardSettings({ ok: false })).toEqual([]);
     expect(parseCardSettings(null)).toEqual([]);
+  });
+});
+
+describe("failure notice", () => {
+  const REFRESH_FAILED = "Couldn\u2019t refresh usage. Showing the last available update.";
+  const opencode = { provider: "opencode", machine: "MacBook Pro (7)", message: "OpenCode Go usage access was denied." };
+
+  /** bb's card with its status message. */
+  function card(message: string) {
+    document.body.innerHTML = `
+      <div class="card">
+        <div data-provider-usage-header>
+          <button role="tab" aria-label="Claude Code" aria-selected="true"></button>
+          <button type="button" aria-expanded="false" aria-label="Usage machine: MacBook Pro (7)"></button>
+        </div>
+        <div role="status"><svg class="icon"></svg><span class="text">${message}</span></div>
+      </div>`;
+    return document.querySelector("[data-provider-usage-header]")!;
+  }
+  const status = () => document.querySelector<HTMLElement>('[role="status"]')!;
+  const line = () => status().querySelector("[data-usage-pace-failure]");
+  const button = () => status().querySelector<HTMLButtonElement>("[data-usage-pace-dismiss]");
+  function memory() {
+    const items = new Map<string, string>();
+    return { getItem: (k: string) => items.get(k) ?? null, setItem: (k: string, v: string) => void items.set(k, v) };
+  }
+
+  it("reads the providers with status error from this plugin's snapshot", () => {
+    expect(
+      parseFailures({
+        ok: true,
+        result: {
+          providers: [
+            { displayName: "Claude Code", hostName: "MacBook Pro (7)", status: "ok", message: null },
+            { displayName: "opencode", hostName: "MacBook Pro (7)", status: "error", message: "OpenCode Go usage access was denied." },
+            { displayName: "Cursor", hostName: "MacBook Pro (7)", status: "not_installed", message: null },
+          ],
+        },
+      }),
+    ).toEqual([opencode]);
+    expect(parseFailures({ ok: false })).toEqual([]);
+  });
+
+  it("names each failed provider, or says that it is not known", () => {
+    expect(describeFailures([opencode, { ...opencode, provider: "Grok", message: null }])).toBe(
+      "opencode: OpenCode Go usage access was denied.\nGrok failed.",
+    );
+    expect(describeFailures([])).toBe("The provider that failed is not known.");
+  });
+
+  it("adds the failed provider and a dismiss button after bb's text", () => {
+    const header = card(REFRESH_FAILED);
+    decorateFailure(header, [opencode], "MacBook Pro (7)", memory());
+    const children = [...status().children];
+    expect(children.map((c) => c.tagName.toLowerCase())).toEqual(["svg", "span", "span", "button"]);
+    expect(status().querySelector(".text")!.textContent).toBe(REFRESH_FAILED);
+    expect(line()!.textContent).toBe("opencode: OpenCode Go usage access was denied.");
+    expect(button()!.getAttribute("aria-label")).toBe("Dismiss this message");
+  });
+
+  it("shows only the failures of the card's machine", () => {
+    const header = card(REFRESH_FAILED);
+    decorateFailure(header, [{ ...opencode, machine: "Studio" }], "MacBook Pro (7)", memory());
+    expect(line()!.textContent).toBe("The provider that failed is not known.");
+  });
+
+  it("hides the message on dismiss, and keeps it hidden for the same failure", () => {
+    const storage = memory();
+    const header = card(REFRESH_FAILED);
+    decorateFailure(header, [opencode], "MacBook Pro (7)", storage);
+    button()!.click();
+    // mountCardPace's stylesheet hides a status with this attribute.
+    expect(status().hasAttribute("data-usage-pace-dismissed")).toBe(true);
+
+    // bb renders the card again.
+    const again = card(REFRESH_FAILED);
+    decorateFailure(again, [opencode], "MacBook Pro (7)", storage);
+    expect(status().hasAttribute("data-usage-pace-dismissed")).toBe(true);
+  });
+
+  it("shows the message again when a different provider fails", () => {
+    const storage = memory();
+    const header = card(REFRESH_FAILED);
+    decorateFailure(header, [opencode], "MacBook Pro (7)", storage);
+    button()!.click();
+    decorateFailure(header, [{ ...opencode, provider: "Grok Build (usage)", message: "timed out" }], "MacBook Pro (7)", storage);
+    expect(status().hasAttribute("data-usage-pace-dismissed")).toBe(false);
+    expect(line()!.textContent).toBe("Grok Build (usage): timed out");
+  });
+
+  it("leaves other status messages alone", () => {
+    const header = card("Loading usage\u2026");
+    decorateFailure(header, [opencode], "MacBook Pro (7)", memory());
+    expect(line()).toBeNull();
+    expect(button()).toBeNull();
+  });
+
+  it("removes its additions when bb's message is no longer a failure", () => {
+    const header = card(REFRESH_FAILED);
+    decorateFailure(header, [opencode], "MacBook Pro (7)", memory());
+    status().querySelector(".text")!.textContent = "No usage limits reported for this plan.";
+    decorateFailure(header, [opencode], "MacBook Pro (7)", memory());
+    expect(line()).toBeNull();
+    expect(button()).toBeNull();
+    expect(status().hasAttribute("data-usage-pace-failed")).toBe(false);
+  });
+
+  it("does not move its elements again when they are already last", () => {
+    const header = card(REFRESH_FAILED);
+    decorateFailure(header, [opencode], "MacBook Pro (7)", memory());
+    const watch = new MutationObserver(() => {});
+    watch.observe(status(), { childList: true, subtree: true, characterData: true });
+    decorateFailure(header, [opencode], "MacBook Pro (7)", memory());
+    expect(watch.takeRecords()).toHaveLength(0);
+    watch.disconnect();
   });
 });

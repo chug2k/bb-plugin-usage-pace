@@ -61,6 +61,10 @@ A monthly window ("Monthly credits") starts one calendar month before its reset.
 
 This is a straight-line projection. Nights and weekends usually lower the real rate. In the first 5% of a window, the plugin shows "too early to judge pace" and no projection.
 
+## Which provider failed
+
+When one provider on a machine fails to refresh, bb's card shows "Couldn't refresh usage. Showing the last available update." on every tab, and does not say which provider failed. Usage Pace adds the provider and its error under that message, for example "opencode: OpenCode Go usage access was denied.". The × dismisses the message until a different provider fails or the error changes.
+
 ## Hide providers in the card
 
 bb lists some providers on every machine, installed or not. Cursor is one of them. Set *Hide these providers in bb's usage card* to a comma-separated list of names as the card shows them, for example `Cursor`. The provider picker still lists them.

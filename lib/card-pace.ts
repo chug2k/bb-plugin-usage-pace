@@ -3,6 +3,10 @@
 // script mostly adds nodes to it:
 //   - an even-pace tick on each window's bar, and a band between the used
 //     percent and that tick: red when ahead of pace, faint when under it;
+//   - which provider failed, under bb's "Couldn't refresh usage" message,
+//     and a button that dismisses the message. bb shows that message on
+//     every tab when one provider on the machine fails, and does not say
+//     which one. The failure comes from this plugin's own usage snapshot.
 //   - provider tabs the user hid in the settings (bb lists some providers,
 //     such as Cursor, on every machine, installed or not);
 //   - the delta from even pace, as a line inside the row, under the dates.
@@ -40,6 +44,17 @@ const HOVER_QUERY = "(hover: hover) and (pointer: fine)";
 /** Marks a provider tab that the user hid; the style hides it. */
 const HIDDEN_ATTR = "data-usage-pace-hidden";
 const SETTINGS_RPC_URL = "/api/v1/plugins/usage-pace/rpc/getCardSettings";
+const OWN_USAGE_RPC_URL = "/api/v1/plugins/usage-pace/rpc/getUsage";
+/** On bb's status message when it is a refresh or load failure. */
+const FAILED_ATTR = "data-usage-pace-failed";
+/** The line that names the failed providers. */
+const FAILURE_ATTR = "data-usage-pace-failure";
+const DISMISS_ATTR = "data-usage-pace-dismiss";
+const DISMISSED_ATTR = "data-usage-pace-dismissed";
+/** localStorage key: the failure the user dismissed. */
+const DISMISSED_KEY = "usage-pace:dismissed-failure";
+/** bb's texts: "Couldn’t refresh usage. …" and "Couldn’t load usage." */
+const FAILURE_MESSAGE = /couldn.t (refresh|load) usage/iu;
 const STYLE_ID = "usage-pace-card-style";
 const MACHINE_PREFIX = "Usage machine: ";
 const CARD_RPC_URL = "/api/v1/plugins/provider-usage/rpc/getUsage";
@@ -49,6 +64,40 @@ const REFETCH_MS = 60_000;
 const STYLE = `
 [role="tab"][${HIDDEN_ATTR}] {
   display: none !important;
+}
+[role="status"][${FAILED_ATTR}] {
+  position: relative;
+  flex-wrap: wrap;
+  row-gap: 0.25rem;
+  padding-right: 1.75rem;
+}
+[role="status"][${DISMISSED_ATTR}] {
+  display: none !important;
+}
+[${FAILURE_ATTR}] {
+  flex-basis: 100%;
+  padding-left: 1.25rem;
+  white-space: pre-line;
+}
+[${DISMISS_ATTR}] {
+  position: absolute;
+  top: 0.3rem;
+  right: 0.3rem;
+  width: 1.25rem;
+  height: 1.25rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 0.25rem;
+  font-size: 0.9rem;
+  line-height: 1;
+  color: inherit;
+  opacity: 0.7;
+  cursor: pointer;
+}
+[${DISMISS_ATTR}]:hover {
+  opacity: 1;
+  background: var(--sidebar-accent, rgb(0 0 0 / 0.06));
 }
 [${TICK_ATTR}] {
   position: absolute;
@@ -266,6 +315,120 @@ function cardRows(header: Element): HTMLElement[] {
  * Hides the provider tabs named in `hidden` (lowercase names). When the
  * selected tab is hidden, selects the first visible tab instead.
  */
+/** A provider whose usage read failed, from this plugin's own snapshot. */
+export interface ProviderFailure {
+  provider: string;
+  machine: string;
+  message: string | null;
+}
+
+/** Reads this plugin's getUsage result: the providers with status "error". */
+export function parseFailures(body: unknown): ProviderFailure[] {
+  const providers = (body as { result?: { providers?: unknown } } | null)?.result?.providers;
+  if (!Array.isArray(providers)) return [];
+  return providers
+    .filter((provider) => provider?.status === "error" && typeof provider.displayName === "string")
+    .map((provider) => ({
+      provider: provider.displayName as string,
+      machine: typeof provider.hostName === "string" ? provider.hostName : "",
+      message: typeof provider.message === "string" ? provider.message : null,
+    }));
+}
+
+/** "opencode: OpenCode Go usage access was denied. …", one line each. */
+export function describeFailures(failures: readonly ProviderFailure[]): string {
+  if (failures.length === 0) return "The provider that failed is not known.";
+  return failures
+    .map((failure) => (failure.message ? `${failure.provider}: ${failure.message}` : `${failure.provider} failed.`))
+    .join("\n");
+}
+
+/**
+ * Adds the failed providers and a dismiss button to bb's failure message in
+ * one card. A dismissed message stays hidden until the failure changes.
+ */
+export function decorateFailure(
+  header: Element,
+  failures: readonly ProviderFailure[],
+  machine: string | null,
+  storage: Pick<Storage, "getItem" | "setItem"> | null,
+) {
+  const card = header.parentElement;
+  const status = card?.querySelector<HTMLElement>('[role="status"]') ?? null;
+  for (const other of card?.querySelectorAll<HTMLElement>(`[${FAILED_ATTR}]`) ?? []) {
+    if (other !== status) clearFailure(other);
+  }
+  if (status === null) return;
+  const text = [...status.childNodes]
+    .filter((node) => !(node instanceof Element && (node.hasAttribute(FAILURE_ATTR) || node.hasAttribute(DISMISS_ATTR))))
+    .map((node) => node.textContent ?? "")
+    .join(" ");
+  if (!FAILURE_MESSAGE.test(text)) {
+    clearFailure(status);
+    return;
+  }
+
+  const here = failures.filter((failure) => machine === null || failure.machine === machine);
+  const detail = describeFailures(here);
+  // The key changes when another provider fails or the message changes.
+  const key = `${machine ?? ""}|${text.trim()}|${detail}`;
+
+  if (!status.hasAttribute(FAILED_ATTR)) status.setAttribute(FAILED_ATTR, "");
+  let line = status.querySelector<HTMLElement>(`:scope > [${FAILURE_ATTR}]`);
+  if (line === null) {
+    line = document.createElement("span");
+    line.setAttribute(FAILURE_ATTR, "");
+  }
+  setText(line, detail);
+  let button = status.querySelector<HTMLButtonElement>(`:scope > [${DISMISS_ATTR}]`);
+  if (button === null) {
+    button = document.createElement("button");
+    button.type = "button";
+    button.setAttribute(DISMISS_ATTR, "");
+    button.setAttribute("aria-label", "Dismiss this message");
+    button.title = "Dismiss until the failure changes";
+    button.textContent = "×";
+  }
+  // After bb's icon and text: the line, then the button. append() moves
+  // them back to the end if React added a child later.
+  if (status.lastElementChild !== button || button.previousElementSibling !== line) {
+    status.append(line, button);
+  }
+  // The handler reads the key from the button, so it stays current.
+  button.dataset.key = key;
+  button.onclick = (event) => {
+    event.stopPropagation();
+    storage?.setItem(DISMISSED_KEY, button!.dataset.key ?? "");
+    status.setAttribute(DISMISSED_ATTR, "");
+  };
+
+  const dismissed = storage?.getItem(DISMISSED_KEY) === key;
+  if (dismissed !== status.hasAttribute(DISMISSED_ATTR)) {
+    if (dismissed) status.setAttribute(DISMISSED_ATTR, "");
+    else status.removeAttribute(DISMISSED_ATTR);
+  }
+}
+
+function clearFailure(status: HTMLElement) {
+  status.querySelector(`:scope > [${FAILURE_ATTR}]`)?.remove();
+  status.querySelector(`:scope > [${DISMISS_ATTR}]`)?.remove();
+  if (status.hasAttribute(FAILED_ATTR)) status.removeAttribute(FAILED_ATTR);
+  if (status.hasAttribute(DISMISSED_ATTR)) status.removeAttribute(DISMISSED_ATTR);
+}
+
+function cardMachine(header: Element): string | null {
+  const label = header.querySelector(`[aria-label^="${MACHINE_PREFIX}"]`)?.getAttribute("aria-label");
+  return label?.slice(MACHINE_PREFIX.length) ?? null;
+}
+
+function safeStorage(): Storage | null {
+  try {
+    return window.localStorage;
+  } catch {
+    return null;
+  }
+}
+
 export function hideTabs(header: Element, hidden: readonly string[]) {
   const tabs = [...header.querySelectorAll<HTMLElement>('[role="tab"]')];
   for (const tab of tabs) {
@@ -316,6 +479,7 @@ export function mountCardPace({ signal }: { signal: AbortSignal }) {
 
   let providers: CardProvider[] = [];
   let hiddenProviders: string[] = [];
+  let failures: ProviderFailure[] = [];
   let fetchedAt = 0;
   let fetching = false;
   const decorated = new WeakSet<HTMLElement>();
@@ -330,6 +494,7 @@ export function mountCardPace({ signal }: { signal: AbortSignal }) {
     if (now - fetchedAt > REFETCH_MS) void load();
     for (const header of headers) {
       hideTabs(header, hiddenProviders);
+      decorateFailure(header, failures, cardMachine(header), safeStorage());
       decorateCard(header, providers, now, hovered, decorated);
     }
     // React puts a changed title back; hold it again.
@@ -390,13 +555,15 @@ export function mountCardPace({ signal }: { signal: AbortSignal }) {
       }).then((response) => response.json());
     // Each read keeps its last value when it fails; the next run tries
     // again after REFETCH_MS.
-    const [card, settings] = await Promise.allSettled([
+    const [card, settings, own] = await Promise.allSettled([
       post(CARD_RPC_URL, { force: false, machineIds: null, providerId: null, maxAgeMs: CARD_MAX_AGE_MS }),
       post(SETTINGS_RPC_URL, {}),
+      post(OWN_USAGE_RPC_URL, { force: false }),
     ]);
     try {
       if (card.status === "fulfilled") providers = parseCardUsage(card.value);
       if (settings.status === "fulfilled") hiddenProviders = parseCardSettings(settings.value);
+      if (own.status === "fulfilled") failures = parseFailures(own.value);
     } finally {
       fetching = false;
       schedule();
@@ -422,6 +589,9 @@ export function mountCardPace({ signal }: { signal: AbortSignal }) {
       `[${TICK_ATTR}], [${BAND_ATTR}], [${DETAIL_ATTR}]`,
     )) {
       node.remove();
+    }
+    for (const status of document.querySelectorAll<HTMLElement>(`[${FAILED_ATTR}]`)) {
+      clearFailure(status);
     }
     for (const tab of document.querySelectorAll(`[${HIDDEN_ATTR}]`)) {
       tab.removeAttribute(HIDDEN_ATTR);
