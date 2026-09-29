@@ -5,6 +5,7 @@ import {
   formatBudget,
   formatDuration,
   formatMoment,
+  formatProjection,
   formatRunsOut,
   paceFor,
   paceForWindows,
@@ -79,7 +80,7 @@ describe("Grok Build monthly credits", () => {
     expect(pace.elapsedFraction).toBeCloseTo(1 / 3);
     expect(pace.projectedPercent).toBeCloseTo(120);
     // 60% left over 20 days.
-    expect(formatBudget(pace)).toBe("3.0%/day");
+    expect(formatBudget(pace)).toBe("budget 3%/day");
   });
 });
 
@@ -167,11 +168,36 @@ describe("paceFor", () => {
 });
 
 describe("formatting", () => {
-  it("uses per-day budgets for long windows and per-hour for short ones", () => {
+  it("gives the budget per day while a day or more is left", () => {
     const week = paceFor({ label: "7d", usedPercent: 42, resetsAt: at(122) }, NOW)!;
-    expect(formatBudget(week)).toBe("11%/day");
+    expect(formatBudget(week)).toBe("budget 11%/day");
+  });
+
+  it("gives the budget per hour with 3 hours to a day left, also in a long window", () => {
+    const week = paceFor({ label: "7d", usedPercent: 90, resetsAt: at(10) }, NOW)!;
+    expect(formatBudget(week)).toBe("budget 1%/h");
+    const session = paceFor({ label: "5h", usedPercent: 20, resetsAt: at(4) }, NOW)!;
+    expect(formatBudget(session)).toBe("budget 20%/h");
+  });
+
+  it("gives what is left, with no rate, under 3 hours before the reset", () => {
+    // The case that read "budget 68%/day": 7d, 96% used, 1h 25m left.
+    const week = paceFor({ label: "7d", usedPercent: 96, resetsAt: at(85 / 60) }, NOW)!;
+    expect(formatBudget(week)).toBe("4% left for 1h 25m");
+    expect(describeDelta(week, 96, NOW)[1]).toBe("lasts to reset · 4% left for 1h 25m");
     const session = paceFor({ label: "5h", usedPercent: 50, resetsAt: at(2) }, NOW)!;
-    expect(formatBudget(session)).toBe("25%/h");
+    expect(formatBudget(session)).toBe("50% left for 2h 0m");
+  });
+
+  it("keeps one decimal only when it says something", () => {
+    const week = paceFor({ label: "7d", usedPercent: 90, resetsAt: at(36) }, NOW)!;
+    expect(formatBudget(week)).toBe("budget 6.7%/day");
+  });
+
+  it("caps the projection text at 300%", () => {
+    expect(formatProjection(162.4)).toBe("on track for 162%");
+    expect(formatProjection(300)).toBe("on track for 300%");
+    expect(formatProjection(912)).toBe("on track for over 300%");
   });
 
   it("shows the weekday only when the moment is not today", () => {

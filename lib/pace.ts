@@ -34,6 +34,10 @@ export interface Pace {
   lockoutMs: number;
   /** Percent per hour that lasts exactly until the reset. */
   budgetPerHour: number;
+  /** Time from now to the reset. */
+  remainingMs: number;
+  /** Percent of the window not used yet. */
+  leftPercent: number;
   tone: Tone;
 }
 
@@ -207,6 +211,8 @@ export function paceFor(
     runsOutAtMs,
     lockoutMs: runsOutAtMs === null ? 0 : Math.max(0, resetsAtMs - runsOutAtMs),
     budgetPerHour,
+    remainingMs,
+    leftPercent: 100 - used,
     tone: worse(toneForUsed(used), toneForProjection(projectedPercent)),
   };
 }
@@ -227,14 +233,35 @@ export function formatRatio(ratio: number): string {
   return `${ratio >= 10 ? Math.round(ratio) : ratio.toFixed(1)}×`;
 }
 
-/** "11%/day" for windows of two days or more, else "4.2%/h". */
+/** Below this much time to the reset, a per-hour rate says little. */
+const MIN_RATE_MS = 3 * HOUR_MS;
+
+/** "68%", "2.8%", "4%" (no ".0"). */
+const percent = (value: number) =>
+  `${value >= 10 ? Math.round(value) : Number(value.toFixed(1))}%`;
+
+/**
+ * The budget that lasts to the reset. The unit follows the time left, not
+ * the window length: a per-day rate with an hour left ("68%/day") is
+ * correct arithmetic and no use to anyone.
+ *   1 day or more left:  "budget 11%/day"
+ *   3 hours to 1 day:    "budget 2.8%/h"
+ *   under 3 hours:       "4% left for 1h 25m"
+ */
 export function formatBudget(pace: Pace): string {
-  if (pace.windowMs >= 2 * DAY_MS) {
-    const perDay = pace.budgetPerHour * 24;
-    return `${perDay >= 10 ? Math.round(perDay) : perDay.toFixed(1)}%/day`;
-  }
-  const perHour = pace.budgetPerHour;
-  return `${perHour >= 10 ? Math.round(perHour) : perHour.toFixed(1)}%/h`;
+  if (pace.remainingMs >= DAY_MS) return `budget ${percent(pace.budgetPerHour * 24)}/day`;
+  if (pace.remainingMs >= MIN_RATE_MS) return `budget ${percent(pace.budgetPerHour)}/h`;
+  return `${percent(pace.leftPercent)} left for ${formatDuration(pace.remainingMs)}`;
+}
+
+/** Above this, a projection only says "far too fast". */
+const MAX_PROJECTED_PERCENT = 300;
+
+/** "on track for 162%", or "on track for over 300%". */
+export function formatProjection(projected: number): string {
+  return projected > MAX_PROJECTED_PERCENT
+    ? `on track for over ${MAX_PROJECTED_PERCENT}%`
+    : `on track for ${Math.round(projected)}%`;
 }
 
 /**
@@ -285,13 +312,13 @@ export function formatRunsOut(
 /** Pace details without the run-out moment: "1.6× pace · on track for 162% · budget 11%/day". */
 export function describeRate(pace: Pace | null): string {
   if (pace === null) return "";
-  const budget = `budget ${formatBudget(pace)}`;
+  const budget = formatBudget(pace);
   if (pace.ratio === null || pace.projectedPercent === null) {
     return `too early to judge pace · ${budget}`;
   }
   return [
     `${formatRatio(pace.ratio)} pace`,
-    `on track for ${Math.round(pace.projectedPercent)}%`,
+    formatProjection(pace.projectedPercent),
     budget,
   ].join(" · ");
 }
@@ -311,7 +338,7 @@ export function describeDelta(
   timeZone?: string,
 ): [string, string] {
   if (pace.ratio === null) {
-    return ["too early to judge pace", `budget ${formatBudget(pace)}`];
+    return ["too early to judge pace", formatBudget(pace)];
   }
   const points = usedPercent - pace.elapsedFraction * 100;
   const ahead = formatDuration((Math.abs(points) / 100) * pace.windowMs);
@@ -324,7 +351,7 @@ export function describeDelta(
   const runsOut = formatRunsOut(pace, now, timeZone);
   const second =
     runsOut === null
-      ? `lasts to reset · budget ${formatBudget(pace)}`
+      ? `lasts to reset · ${formatBudget(pace)}`
       : runsOut === "now"
         ? `out now · ${formatDuration(pace.lockoutMs)} without quota`
         : `runs out ${runsOut} · ${formatDuration(pace.lockoutMs)} without quota`;
