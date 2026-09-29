@@ -11,13 +11,18 @@ days to go, are you fine or not? Usage Pace answers that in the same card.
   to the tick is light grey.
 - **The numbers on hover.** Hover a row to see two lines under the dates, for
   example "17% ahead of pace (1d 5h)" and "runs out Sat 23:05 · 2d 16h
-  without quota". When the rate lasts, the second line shows the daily budget
-  that lasts to the reset.
+  without quota". When the rate lasts, the second line shows the budget that
+  lasts to the reset, per day or per hour, or in the last three hours what is
+  left.
 - **The same on a touch screen.** Tap a row to show the lines. Tap again to
   hide them.
 - **Grok Build in the card.** bb's Grok provider reports no usage. Usage
   Pace adds a Grok Build tab with the weekly or monthly credits and their
   pace.
+- **Which provider failed.** When one provider fails, bb shows "Couldn't
+  refresh usage" on every tab. Usage Pace shows it only on the failed
+  provider's tab, with that provider's error, and puts a red dot on that
+  tab. You can dismiss the message until the failure changes.
 - **Fewer tabs.** bb lists some providers, such as Cursor, on every
   machine. A setting hides the tabs you do not use.
 - **`bb usage-pace`** prints each window with its pace in a terminal, and
