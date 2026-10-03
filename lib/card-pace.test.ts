@@ -102,6 +102,33 @@ describe("matchRow", () => {
     expect(matchRow(providers, "Codex", null, "Weekly limit: 42% used. x", NOW)).toBeNull();
     expect(matchRow(providers, "Claude Code", null, "Credits: 42% used. x", NOW)).toBeNull();
   });
+
+  it("matches rows on the All accounts tab against any provider", () => {
+    for (const tab of ["All accounts", "All", "all accounts"]) {
+      const match = matchRow(providers, tab, "MacBook Pro (7)", "Weekly limit: 42% used. x", NOW);
+      expect(match).not.toBeNull();
+      expect(match?.pace.windowMs).toBe(168 * HOUR);
+    }
+  });
+
+  it("tells providers apart on the All tab by the percent the row shows", () => {
+    const both: CardProvider[] = [
+      ...parseCardUsage(cardResponse(85)),
+      {
+        provider: "Grok Build (usage)",
+        machine: "MacBook Pro (7)",
+        windows: [
+          { label: "Weekly limit", usedPercent: 2, resetsAt: at(200) },
+        ],
+      },
+    ];
+    const claudeRow = matchRow(both, "All accounts", "MacBook Pro (7)", "Weekly limit: 85% used. x", NOW)!;
+    const grokRow = matchRow(both, "All accounts", "MacBook Pro (7)", "Weekly limit: 2% used. x", NOW)!;
+    expect(claudeRow).not.toBeNull();
+    expect(grokRow).not.toBeNull();
+    // Grok's window resets later: its pace window differs from Claude's.
+    expect(grokRow.pace.resetsAtMs).not.toBe(claudeRow.pace.resetsAtMs);
+  });
 });
 
 /** The markup bb's provider-usage card renders for one provider. */
@@ -184,7 +211,7 @@ describe("mountCardPace", () => {
 
   it("reads the card's own RPC", async () => {
     await mount([{ label: "Weekly limit", used: 42 }]);
-    expect(fetchMock.mock.calls[0]![0]).toBe("/api/v1/plugins/provider-usage/rpc/getUsage");
+    expect(fetchMock.mock.calls[0]![0]).toBe("/api/v1/plugins/bb--provider-usage/rpc/getUsage");
     expect(JSON.parse(fetchMock.mock.calls[0]![1].body)).toEqual({
       force: false,
       machineIds: null,
@@ -428,11 +455,11 @@ describe("failure notice", () => {
   const opencode = { provider: "opencode", machine: "MacBook Pro (7)", message: "OpenCode Go usage access was denied." };
 
   /** bb's card with its status message; `selected` is the open tab. */
-  function card(message: string, selected = "opencode") {
+  function card(message: string, selected = "opencode", tabs = ["Claude Code", "opencode", "Grok Build (usage)"]) {
     document.body.innerHTML = `
       <div class="card">
         <div data-provider-usage-header>
-          ${["Claude Code", "opencode", "Grok Build (usage)"]
+          ${tabs
             .map((name) => `<button role="tab" aria-label="${name}" aria-selected="${name === selected}"></button>`)
             .join("")}
           <button type="button" aria-expanded="false" aria-label="Usage machine: MacBook Pro (7)"></button>
@@ -486,6 +513,14 @@ describe("failure notice", () => {
     const header = card(REFRESH_FAILED, "Claude Code");
     decorateFailure(header, [opencode], "MacBook Pro (7)", memory());
     expect(status().hasAttribute("data-usage-pace-other-tab")).toBe(true);
+  });
+
+  it("keeps the message, naming every failure, on the All accounts tab", () => {
+    const tabs = ["All accounts", "Claude Code", "opencode", "Grok Build (usage)"];
+    const header = card(REFRESH_FAILED, "All accounts", tabs);
+    decorateFailure(header, [opencode], "MacBook Pro (7)", memory());
+    expect(status().hasAttribute("data-usage-pace-other-tab")).toBe(false);
+    expect(line()!.textContent).toBe("opencode: OpenCode Go usage access was denied.");
   });
 
   it("shows the message, with that provider's error only, on the failed provider's tab", () => {
@@ -553,6 +588,12 @@ describe("failure notice", () => {
     decorateFailure(header, [opencode], "MacBook Pro (7)", memory());
     expect(line()).toBeNull();
     expect(button()).toBeNull();
+  });
+
+  it("matches bb's shorter refresh text without the word usage", () => {
+    const header = card("Couldn\u2019t refresh. Showing last update.");
+    decorateFailure(header, [opencode], "MacBook Pro (7)", memory());
+    expect(line()!.textContent).toBe("opencode: OpenCode Go usage access was denied.");
   });
 
   it("removes its additions when bb's message is no longer a failure", () => {

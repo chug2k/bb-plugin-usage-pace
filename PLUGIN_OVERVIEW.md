@@ -27,6 +27,10 @@ days to go, are you fine or not? Usage Pace answers that in the same card.
   machine. A setting hides the tabs you do not use.
 - **`bb usage-pace`** prints each window with its pace in a terminal, and
   `--json` gives agents a `pace` object for each window.
+- **Grok login renewal.** The Grok access token lasts 6 hours. Every 15
+  minutes the plugin checks each connected machine and, at 5 hours, refreshes
+  `~/.grok/auth.json` with the saved refresh token. This does not open a
+  browser. A setting turns it off.
 
 ## How pace is calculated
 

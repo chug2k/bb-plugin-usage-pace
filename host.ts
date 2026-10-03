@@ -3,6 +3,7 @@
 // else goes to bb's ACP bridge, so threads on this provider run Grok Build.
 // From bb-plugin-grok-build-usage by MacHatter1 (MIT).
 
+import { experimental_defineHostEntry } from "@get-bb/plugin-sdk/host";
 import {
   createBridgeIo,
   experimental_defineProviderBridge,
@@ -10,6 +11,7 @@ import {
 } from "@get-bb/plugin-sdk/provider-bridge";
 import { experimental_acpProviderBridge } from "@get-bb/plugin-sdk/provider-bridge/acp";
 
+import { grokSessionContract, renewGrokSession } from "./lib/grok-session";
 import { readGrokHealth, readGrokUsage } from "./lib/grok-usage";
 
 const { sendResult, sendError } = createBridgeIo();
@@ -64,4 +66,11 @@ export const experimental_providerBridge: ProviderBridgeEntry = experimental_def
   onClose: () => experimental_acpProviderBridge.onClose?.(),
   onSigterm: () => experimental_acpProviderBridge.onSigterm?.(),
   onSigint: () => experimental_acpProviderBridge.onSigint?.(),
+});
+
+export default experimental_defineHostEntry({
+  contract: grokSessionContract,
+  handlers: {
+    renewGrokSession: (input) => renewGrokSession(input),
+  },
 });

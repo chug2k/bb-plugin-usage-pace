@@ -58,11 +58,11 @@ const OTHER_TAB_ATTR = "data-usage-pace-other-tab";
 const FAILED_TAB_ATTR = "data-usage-pace-failed-tab";
 /** localStorage key: the failure the user dismissed. */
 const DISMISSED_KEY = "usage-pace:dismissed-failure";
-/** bb's texts: "Couldn’t refresh usage. …" and "Couldn’t load usage." */
-const FAILURE_MESSAGE = /couldn.t (refresh|load) usage/iu;
+/** bb's texts: "Couldn’t refresh. …" and "Couldn’t load usage." */
+const FAILURE_MESSAGE = /couldn.t (refresh|load)/iu;
 const STYLE_ID = "usage-pace-card-style";
 const MACHINE_PREFIX = "Usage machine: ";
-const CARD_RPC_URL = "/api/v1/plugins/provider-usage/rpc/getUsage";
+const CARD_RPC_URL = "/api/v1/plugins/bb--provider-usage/rpc/getUsage";
 const CARD_MAX_AGE_MS = 5 * 60_000;
 const REFETCH_MS = 60_000;
 
@@ -202,9 +202,20 @@ export interface RowMatch {
   usedPercent: number;
 }
 
+/** Tab names that show every provider at once; rows there match any provider. */
+const ALL_TABS = new Set(["all", "all accounts", "all providers"]);
+
+/** The card's "All accounts" tab carries no provider name: match any provider. */
+function normalizeTabProvider(provider: string | null): string | null {
+  if (provider === null) return null;
+  return ALL_TABS.has(provider.trim().toLowerCase()) ? null : provider;
+}
+
 /**
  * The pace for one card row. `provider` and `machine` are the names the
- * card shows; either can be null when the card does not show it.
+ * card shows; either can be null when the card does not show it. The card's
+ * "All accounts" tab is treated as no provider: every provider's rows show
+ * there, so the row matches any provider on the machine.
  */
 export function matchRow(
   providers: readonly CardProvider[],
@@ -213,27 +224,42 @@ export function matchRow(
   ariaLabel: string,
   now = Date.now(),
 ): RowMatch | null {
+  const wanted = normalizeTabProvider(provider);
   const named = providers.filter(
-    (candidate) => provider === null || candidate.provider === provider,
+    (candidate) => wanted === null || candidate.provider === wanted,
   );
   const onMachine = named.filter(
     (candidate) => machine === null || candidate.machine === machine,
   );
-  for (const candidate of onMachine.length > 0 ? onMachine : named) {
+  const pool = onMachine.length > 0 ? onMachine : named;
+  // The row can be newer than the last fetch: use the percent it shows.
+  const shown = /: (\d+(?:\.\d+)?)% used/u.exec(ariaLabel);
+  const shownPercent = shown ? Number(shown[1]) : null;
+  // Several providers can share a window label ("Weekly limit") on the All
+  // tab: prefer the provider whose stored percent is closest to the percent
+  // the row shows.
+  let best: RowMatch | null = null;
+  let bestDistance = Number.POSITIVE_INFINITY;
+  for (const candidate of pool) {
     const index = candidate.windows.findIndex((window) =>
       ariaLabel.startsWith(`${window.label}: `),
     );
     if (index === -1) continue;
-    // The row can be newer than the last fetch: use the percent it shows.
-    const shown = /: (\d+(?:\.\d+)?)% used/u.exec(ariaLabel);
     const windows = candidate.windows.map((window, j) =>
-      j === index && shown ? { ...window, usedPercent: Number(shown[1]) } : window,
+      j === index && shownPercent !== null ? { ...window, usedPercent: shownPercent } : window,
     );
     const pace = paceForWindows(windows, now)[index];
-    if (pace == null) return null;
-    return { pace, usedPercent: windows[index]!.usedPercent };
+    if (pace == null) continue;
+    const distance =
+      shownPercent === null
+        ? 0
+        : Math.abs(candidate.windows[index]!.usedPercent - shownPercent);
+    if (distance < bestDistance) {
+      bestDistance = distance;
+      best = { pace, usedPercent: windows[index]!.usedPercent };
+    }
   }
-  return null;
+  return best;
 }
 
 function setText(element: HTMLElement, text: string) {
@@ -408,10 +434,12 @@ export function decorateFailure(
 
   const selectedTab = header.querySelector('[role="tab"][aria-selected="true"]');
   const selected = selectedTab === null ? null : tabName(selectedTab);
-  const onFailedTab = selected !== null && failed.has(selected);
+  // The All tab shows every provider, failed ones included: its banner stays.
+  const showingAll = selected !== null && ALL_TABS.has(selected);
+  const onFailedTab = selected !== null && (failed.has(selected) || (showingAll && failed.size > 0));
   // Known failures, none of them on this tab: this tab's data is current.
   toggleAttribute(status, OTHER_TAB_ATTR, failed.size > 0 && selected !== null && !onFailedTab);
-  const shown = onFailedTab
+  const shown = onFailedTab && !showingAll
     ? here.filter((failure) => failure.provider.trim().toLowerCase() === selected)
     : here;
   const detail = describeFailures(shown);

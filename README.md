@@ -79,6 +79,18 @@ bb lists some providers on every machine, installed or not. Cursor is one of the
 bb plugin config usage-pace set hiddenCardProviders "Cursor"
 ```
 
+## Grok login renewal
+
+The Grok CLI access token in `~/.grok/auth.json` lasts 6 hours. A browser `grok login` replaces it with another 6-hour token. While this plugin is loaded and `renewGrokSession` is on, it checks each connected machine every 15 minutes. When the saved login is 5 hours old, that machine runs `grok models` with a wide early-refresh window. Grok then uses the refresh token and writes a new access token. The check does not open a browser.
+
+```sh
+bb usage-pace renew-grok
+bb usage-pace renew-grok --force
+bb plugin config usage-pace set renewGrokSession false
+```
+
+`--force` renews a login that is still younger than 5 hours. A machine with no saved Grok login is left alone.
+
 ## Grok Build
 
 bb runs Grok Build through its built-in ACP provider (`acp-grok`), and that provider reports no usage, so bb's usage card has no Grok tab. Usage Pace adds one:

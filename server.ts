@@ -8,6 +8,12 @@
 import { defineRpcContract, type BbPluginApi } from "@get-bb/plugin-sdk";
 import { z } from "zod";
 import { registerGrokProvider } from "./lib/grok-provider";
+import {
+  grokSessionContract,
+  RENEW_AFTER_MS,
+  RENEW_CHECK_MS,
+  type GrokRenewResult,
+} from "./lib/grok-session";
 import { createGrokUsageSource, grokUsageSourceContract } from "./lib/grok-usage-source";
 import { describePace, paceForWindows } from "./lib/pace";
 import { createTokenTotals } from "./lib/token-totals";
@@ -150,6 +156,13 @@ export default async function plugin(bb: BbPluginApi) {
       label: "Add Grok Build usage to bb's usage card (takes effect after a plugin reload)",
       default: true,
     },
+    renewGrokSession: {
+      type: "boolean",
+      label: "Renew the Grok Build login every 5 hours",
+      description:
+        "On each connected machine, refreshes ~/.grok/auth.json before the 6-hour access token expires. This does not open a browser.",
+      default: true,
+    },
   });
   let cacheMs = 5 * 60_000;
   let showStrip = false;
@@ -173,6 +186,56 @@ export default async function plugin(bb: BbPluginApi) {
         "Grok Build usage from Usage Pace. Inventory reads metadata only.",
     });
   }
+  const grokHosts = bb.hosts.experimental_client({ contract: grokSessionContract });
+
+  async function renewGrokOnConnectedHosts(force: boolean): Promise<string[]> {
+    const lines: string[] = [];
+    if ((await settings.get()).renewGrokSession === false && !force) {
+      return ["Grok login renewal is off. Set renewGrokSession to turn it on."];
+    }
+    let hosts: Host[] = [];
+    try {
+      hosts = await bb.sdk.hosts.list();
+    } catch (cause) {
+      const message = cause instanceof Error ? cause.message : String(cause);
+      bb.log.warn(`Grok login renewal could not list machines: ${message}`);
+      return [`Could not list machines: ${message}`];
+    }
+    const connected = hosts.filter((host) => host.status !== "disconnected");
+    if (connected.length === 0) return ["No connected machine to renew."];
+    for (const host of connected) {
+      try {
+        const result = await grokHosts.call(
+          "renewGrokSession",
+          { force },
+          { hostId: host.id, timeoutMs: 45_000 },
+        );
+        lines.push(formatGrokRenewal(host.name, result));
+        if (result.status === "renewed") {
+          bb.log.info(`Grok login renewed on ${host.name} until ${result.expiresAt}.`);
+        } else if (result.status === "failed") {
+          bb.log.warn(`Grok login renewal failed on ${host.name}: ${result.message}`);
+        }
+      } catch (cause) {
+        const message = cause instanceof Error ? cause.message : String(cause);
+        bb.log.warn(`Grok login renewal failed on ${host.name}: ${message}`);
+        lines.push(`${host.name}: failed — ${message}`);
+      }
+    }
+    return lines;
+  }
+
+  bb.background.service("grok-session", {
+    async start(signal) {
+      while (!signal.aborted) {
+        if ((await settings.get()).renewGrokSession !== false) {
+          await renewGrokOnConnectedHosts(false);
+        }
+        await sleep(RENEW_CHECK_MS, signal);
+      }
+    },
+  });
+
   settings.onChange?.(() => {
     void applySettings().then(() => {
       bb.realtime.publish("usage-changed", { fetchedAt: new Date().toISOString() });
@@ -295,6 +358,7 @@ export default async function plugin(bb: BbPluginApi) {
   const usageText = [
     "Usage:",
     "  bb usage-pace [--all] [--force] [--json]",
+    "  bb usage-pace renew-grok [--force]",
     "",
     "  --tokens total tokens across BB for today and this month (JSON)",
     "  --all    show every window, not only weekly ones",
@@ -311,6 +375,11 @@ export default async function plugin(bb: BbPluginApi) {
         summary: "Print usage windows with pace",
         usage: "bb usage-pace [show] [--all] [--force] [--json]",
       },
+      {
+        name: "renew-grok",
+        summary: "Renew the Grok Build login on each connected machine when it is 5 hours old",
+        usage: "bb usage-pace renew-grok [--force]",
+      },
     ],
     async run(argv) {
       if (argv.includes("--tokens")) {
@@ -321,6 +390,11 @@ export default async function plugin(bb: BbPluginApi) {
       const positional = argv.filter((arg) => !arg.startsWith("--"));
       if (positional[0] === "help" || flags.has("--help")) {
         return { exitCode: 0, stdout: usageText };
+      }
+      if (positional[0] === "renew-grok") {
+        const lines = await renewGrokOnConnectedHosts(flags.has("--force"));
+        const failed = lines.some((line) => line.includes(": failed"));
+        return { exitCode: failed ? 1 : 0, stdout: `${lines.join("\n")}\n` };
       }
       if (positional.length > 0 && positional[0] !== "show") {
         return { exitCode: 1, stderr: usageText };
@@ -351,5 +425,36 @@ export default async function plugin(bb: BbPluginApi) {
 
   bb.onDispose(() => {
     cached = null;
+  });
+}
+
+function formatGrokRenewal(hostName: string, result: GrokRenewResult): string {
+  if (result.status === "renewed") return `${hostName}: renewed until ${result.expiresAt}`;
+  if (result.status === "waiting") {
+    const renewsAt =
+      result.createdAt === null
+        ? result.expiresAt
+        : new Date(Date.parse(result.createdAt) + RENEW_AFTER_MS).toISOString();
+    return `${hostName}: waiting — renews after ${renewsAt}`;
+  }
+  if (result.status === "missing") return `${hostName}: no saved Grok login`;
+  return `${hostName}: failed — ${result.message ?? "Grok did not extend the saved login."}`;
+}
+
+function sleep(ms: number, signal: AbortSignal): Promise<void> {
+  return new Promise((resolve) => {
+    if (signal.aborted) {
+      resolve();
+      return;
+    }
+    const timer = setTimeout(() => {
+      signal.removeEventListener("abort", onAbort);
+      resolve();
+    }, ms);
+    const onAbort = () => {
+      clearTimeout(timer);
+      resolve();
+    };
+    signal.addEventListener("abort", onAbort, { once: true });
   });
 }
