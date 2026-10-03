@@ -67,7 +67,7 @@ const CARD_MAX_AGE_MS = 5 * 60_000;
 const REFETCH_MS = 60_000;
 
 const STYLE = `
-[role="tab"][${HIDDEN_ATTR}] {
+[${HIDDEN_ATTR}] {
   display: none !important;
 }
 [role="status"][${FAILED_ATTR}] {
@@ -512,6 +512,26 @@ export function hideTabs(header: Element, hidden: readonly string[]) {
   }
 }
 
+/**
+ * Hides provider sections in the card's All view whose header names a hidden
+ * provider. Hiding the tab alone leaves the section in the All list, so the
+ * section wrapper goes too. The header shows the account email and plan, not
+ * the provider name, so a section hides when its header text contains a
+ * hidden name ("opencode" matches the opencode section).
+ */
+export function hideSections(card: Element, hidden: readonly string[]) {
+  const names = hidden.map((name) => name.trim().toLowerCase()).filter((name) => name !== "");
+  for (const section of card.querySelectorAll("section")) {
+    const head = section.firstElementChild;
+    const text = (head?.textContent ?? "").trim().toLowerCase();
+    toggleAttribute(
+      section.parentElement ?? section,
+      HIDDEN_ATTR,
+      names.some((name) => text.includes(name)),
+    );
+  }
+}
+
 function decorateCard(
   header: Element,
   providers: readonly CardProvider[],
@@ -561,6 +581,7 @@ export function mountCardPace({ signal }: { signal: AbortSignal }) {
     if (now - fetchedAt > REFETCH_MS) void load();
     for (const header of headers) {
       hideTabs(header, hiddenProviders);
+      if (header.parentElement) hideSections(header.parentElement, hiddenProviders);
       decorateFailure(header, failures, cardMachine(header), safeStorage());
       decorateCard(header, providers, now, hovered, decorated);
     }

@@ -3,6 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   decorateFailure,
   describeFailures,
+  hideSections,
   hideTabs,
   parseFailures,
   matchRow,
@@ -447,6 +448,34 @@ describe("hideTabs", () => {
   it("reads an empty list from an error or an unknown shape", () => {
     expect(parseCardSettings({ ok: false })).toEqual([]);
     expect(parseCardSettings(null)).toEqual([]);
+  });
+});
+
+describe("hideSections", () => {
+  /** bb's All view: one wrapper div per provider section. */
+  function allView() {
+    document.body.innerHTML = `<div class="card"><div data-provider-usage-header></div><div class="scroll">
+      <div><section><div><span>charles@anduintransact.com</span><span>Team (5x)</span></div><button aria-expanded="false"></button></section></div>
+      <div><section><div><span>opencode</span></div><p>Usage unavailable.</p></section></div>
+      <div><section><div><span>chug2k@gmail.com</span><span>SuperGrok</span></div><button aria-expanded="false"></button></section></div>
+    </div></div>`;
+    return document.querySelector(".card")!;
+  }
+  const hiddenTexts = (card: Element) =>
+    [...card.querySelectorAll("[data-usage-pace-hidden]")].map((el) => (el.textContent ?? "").replace(/\s+/g, " ").trim());
+
+  it("hides the All-view section whose header names a hidden provider", () => {
+    const card = allView();
+    hideSections(card, ["opencode"]);
+    expect(hiddenTexts(card)).toEqual(["opencodeUsage unavailable."]);
+  });
+
+  it("matches by email or plan text, and shows the section again when the list clears", () => {
+    const card = allView();
+    hideSections(card, ["SuperGrok"]);
+    expect(hiddenTexts(card)).toEqual(["chug2k@gmail.comSuperGrok"]);
+    hideSections(card, []);
+    expect(card.querySelectorAll("[data-usage-pace-hidden]")).toHaveLength(0);
   });
 });
 
