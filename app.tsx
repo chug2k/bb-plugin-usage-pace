@@ -22,7 +22,6 @@ import {
   getUsageState,
   isOverlayOpen,
   refreshUsage,
-  setBarHost,
   setOverlayOpen,
   subscribeBarHost,
   subscribeOverlay,
@@ -52,72 +51,7 @@ import {
 import { Icon } from "@/components/ui/icon";
 import { cn } from "@/lib/utils";
 import { mountCardPace } from "@/lib/card-pace";
-
-const REFRESH_MS = 5 * 60_000;
-const BAR_HOST_ID = "usage-pace-bar-host";
-const FOOTER_SELECTOR = 'div[data-sidebar="footer"]';
-
-// ---------------------------------------------------------------------------
-// Content script: keep the container in the footer + refresh loop
-// ---------------------------------------------------------------------------
-
-function mountBarHost({ signal }: { signal: AbortSignal }) {
-  const host = document.createElement("div");
-  host.id = BAR_HOST_ID;
-  host.style.minWidth = "0";
-
-  const attach = () => {
-    if (signal.aborted) return;
-    const footer = document.querySelector(FOOTER_SELECTOR);
-    if (footer === null) {
-      host.remove();
-      setBarHost(null);
-      return;
-    }
-    const collapsed =
-      footer.closest('[data-state="collapsed"]') !== null ||
-      footer.getBoundingClientRect().width < 120;
-    host.style.display = collapsed ? "none" : "block";
-    if (host.parentElement !== footer || footer.firstChild !== host) {
-      footer.insertBefore(host, footer.firstChild);
-    }
-    setBarHost(host);
-  };
-  attach();
-  const observer = new MutationObserver(attach);
-  observer.observe(document.body, { childList: true, subtree: true });
-  const resize = new ResizeObserver(attach);
-  resize.observe(document.body);
-
-  let timer: number | null = null;
-  const schedule = () => {
-    if (timer !== null) window.clearTimeout(timer);
-    timer = null;
-    if (signal.aborted || document.visibilityState !== "visible") return;
-    timer = window.setTimeout(() => {
-      void refreshUsage({ signal });
-      schedule();
-    }, REFRESH_MS);
-  };
-  const onVisibility = () => {
-    if (document.visibilityState === "visible") void refreshUsage({ signal });
-    schedule();
-  };
-  document.addEventListener("visibilitychange", onVisibility);
-  window.addEventListener("focus", onVisibility);
-  void refreshUsage({ signal });
-  schedule();
-
-  return () => {
-    observer.disconnect();
-    resize.disconnect();
-    document.removeEventListener("visibilitychange", onVisibility);
-    window.removeEventListener("focus", onVisibility);
-    if (timer !== null) window.clearTimeout(timer);
-    setBarHost(null);
-    host.remove();
-  };
-}
+import { mountBarHost } from "@/lib/bar-host";
 
 // ---------------------------------------------------------------------------
 // Hooks
